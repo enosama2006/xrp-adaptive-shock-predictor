@@ -105,7 +105,9 @@ class RealDataPlatform:
     def _save_status(self) -> None:
         self.paths.status.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.paths.status.with_suffix(".json.tmp")
-        temporary.write_text(json.dumps(asdict(self._status), indent=2, sort_keys=True), encoding="utf-8")
+        temporary.write_text(
+            json.dumps(asdict(self._status), indent=2, sort_keys=True), encoding="utf-8"
+        )
         temporary.replace(self.paths.status)
 
     def _load_prices(self) -> pd.DataFrame:
@@ -114,7 +116,16 @@ class RealDataPlatform:
         missing = required - set(frame.columns)
         if missing:
             raise ValueError(f"price dataset missing columns: {sorted(missing)}")
-        return frame[["timestamp_ms", "price"]].drop_duplicates("timestamp_ms", keep="last").sort_values("timestamp_ms", ignore_index=True)
+        columns = [
+            name
+            for name in ("timestamp_ms", "price", "open", "high", "low", "volume")
+            if name in frame.columns
+        ]
+        return (
+            frame[columns]
+            .drop_duplicates("timestamp_ms", keep="last")
+            .sort_values("timestamp_ms", ignore_index=True)
+        )
 
     @staticmethod
     def _feature_names(features: pd.DataFrame) -> list[str]:
@@ -152,7 +163,9 @@ class RealDataPlatform:
         features = pd.read_parquet(self.paths.features)
         final_count = int((anchors["status"] == "FINAL").sum())
         due = force or (
-            final_count >= self._status.last_training_final_rows + self.config.retrain_after_new_final_rows
+            final_count
+            >= self._status.last_training_final_rows
+            + self.config.retrain_after_new_final_rows
         )
         if not due:
             return False
@@ -176,7 +189,9 @@ class RealDataPlatform:
                 models[horizon] = model
 
         self.paths.reports.parent.mkdir(parents=True, exist_ok=True)
-        self.paths.reports.write_text(json.dumps(reports, indent=2, sort_keys=True), encoding="utf-8")
+        self.paths.reports.write_text(
+            json.dumps(reports, indent=2, sort_keys=True), encoding="utf-8"
+        )
         if not all_ready or len(models) != len(HORIZONS):
             self._status.state = "WAIT"
             self._status.reason = "insufficient_real_training_evidence"
@@ -215,12 +230,15 @@ class RealDataPlatform:
             self._status.reason = "no_fitted_real_model"
             self._save_status()
             return []
-        if self._status.last_prediction_ms is not None and timestamp - self._status.last_prediction_ms < self.config.prediction_cadence_ms:
+        if (
+            self._status.last_prediction_ms is not None
+            and timestamp - self._status.last_prediction_ms
+            < self.config.prediction_cadence_ms
+        ):
             return []
 
-        prices = self._load_prices()
         features = pd.read_parquet(self.paths.features)
-        if prices.empty or features.empty:
+        if features.empty:
             return []
         latest = features.sort_values("timestamp_ms").iloc[-1]
         anchor_ms = int(latest["timestamp_ms"])
@@ -269,7 +287,10 @@ class RealDataPlatform:
         prices = self._load_prices()
         from .labeling import PricePoint
 
-        points = [PricePoint(int(row.timestamp_ms), float(row.price)) for row in prices.itertuples(index=False)]
+        points = [
+            PricePoint(int(row.timestamp_ms), float(row.price))
+            for row in prices.itertuples(index=False)
+        ]
         self.ledger.mature(points, timestamp)
 
     def run_cycle(self, force_train: bool = False) -> dict[str, Any]:
