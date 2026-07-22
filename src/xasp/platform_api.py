@@ -16,6 +16,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 import uvicorn
 
+from .baseline import FIRST_TOUCH_GATE_VERSION
 from .platform_runtime_v2 import RealDataPlatformV2, RuntimeConfig, RuntimePaths
 from .production_report import ProductionReportPaths
 
@@ -54,7 +55,7 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
 
     app = FastAPI(
         title="XASP Real Data Platform",
-        version="1.1.0",
+        version="1.1.1",
         lifespan=lifespan,
     )
 
@@ -74,24 +75,49 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
             "adaptive_shock": {
                 "display_name": "Adaptive Shock Magnitude Model",
                 "technical_name": "future-excursion quantile regression",
-                "purpose": "Estimate upside and downside excursion ranges for 15/30/45/60 minutes.",
+                "purpose": (
+                    "Estimate upside and downside excursion ranges for "
+                    "15/30/45/60 minutes."
+                ),
                 "available": shock_bundle is not None,
-                "model_version": None if shock_bundle is None else shock_bundle.get("model_version"),
-                "trained_at_ms": None if shock_bundle is None else shock_bundle.get("trained_at_ms"),
-                "training_rows": None if shock_bundle is None else shock_bundle.get("training_final_rows"),
+                "model_version": (
+                    None if shock_bundle is None else shock_bundle.get("model_version")
+                ),
+                "trained_at_ms": (
+                    None if shock_bundle is None else shock_bundle.get("trained_at_ms")
+                ),
+                "training_rows": (
+                    None if shock_bundle is None else shock_bundle.get("training_final_rows")
+                ),
                 "gate": "85% empirical interval coverage on untouched temporal test data",
                 "endpoint": "/api/models/adaptive-shock/latest",
+                "training_report_endpoint": "/api/reports/training/adaptive-shock",
             },
             "first_touch_10": {
                 "display_name": "±10% First-Touch Model",
                 "technical_name": "calibrated multiclass first-touch classifier",
-                "purpose": "Estimate whether +10%, -10%, or neither is reached first within each horizon.",
+                "purpose": (
+                    "Estimate whether +10%, -10%, or neither is reached first "
+                    "within each horizon."
+                ),
                 "available": touch_bundle is not None,
-                "model_version": None if touch_bundle is None else touch_bundle.get("model_version"),
-                "trained_at_ms": None if touch_bundle is None else touch_bundle.get("trained_at_ms"),
-                "training_rows": None if touch_bundle is None else touch_bundle.get("training_final_rows"),
-                "gate": "85% empirical precision for high-confidence predictions on untouched temporal test data",
+                "model_version": (
+                    None if touch_bundle is None else touch_bundle.get("model_version")
+                ),
+                "trained_at_ms": (
+                    None if touch_bundle is None else touch_bundle.get("trained_at_ms")
+                ),
+                "training_rows": (
+                    None if touch_bundle is None else touch_bundle.get("training_final_rows")
+                ),
+                "gate_methodology_version": FIRST_TOUCH_GATE_VERSION,
+                "gate": (
+                    "85% empirical precision for high-confidence UP_10/DOWN_10 "
+                    "predictions with minimum support per direction on untouched temporal data; "
+                    "NO_EVENT accuracy cannot pass the gate"
+                ),
                 "endpoint": "/api/models/first-touch/latest",
+                "training_report_endpoint": "/api/reports/training/first-touch",
             },
         }
 
@@ -104,11 +130,11 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
             "anchors": paths.anchors.exists(),
             "features": paths.features.exists(),
             "state": paths.state.exists(),
-            "first_touch_model": paths.models.exists(),
+            "first_touch_model_file": paths.models.exists(),
             "first_touch_report": paths.reports.exists(),
             "prediction_ledger": paths.ledger.exists(),
             "shock_targets": platform.envelope.paths.targets.exists(),
-            "shock_model": platform.envelope.paths.model.exists(),
+            "shock_model_file": platform.envelope.paths.model.exists(),
             "shock_report": platform.envelope.paths.report.exists(),
             "production_report": report_paths.latest_json.exists(),
             "production_report_history": report_paths.history_jsonl.exists(),
@@ -125,6 +151,7 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
             "data_available": storage["prices"] and storage["features"],
             "first_touch_model_available": touch_ready,
             "adaptive_shock_model_available": shock_ready,
+            "first_touch_gate_methodology_version": FIRST_TOUCH_GATE_VERSION,
             "storage": storage,
             "ready_for_first_touch_research": touch_ready,
             "ready_for_adaptive_shock_research": shock_ready,
@@ -138,6 +165,7 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
         payload = asdict(platform.status)
         payload["adaptive_shock_model_available"] = platform.envelope.bundle is not None
         payload["first_touch_model_available"] = platform._bundle is not None
+        payload["first_touch_gate_methodology_version"] = FIRST_TOUCH_GATE_VERSION
         payload["required_empirical_confidence"] = 0.85
         payload["confidence_note"] = (
             "85% is an empirical out-of-sample gate, not a guarantee of future correctness"
@@ -171,6 +199,19 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
             .head(max(1, min(limit, 1000)))
         )
         return frame.where(frame.notna(), None).to_dict(orient="records")
+
+    @app.get("/api/reports/training/first-touch")
+    def first_touch_training_report() -> dict[str, Any]:
+        if not platform.paths.reports.exists():
+            return {"status": "WAIT", "reason": "no_first_touch_training_report"}
+        return json.loads(platform.paths.reports.read_text(encoding="utf-8"))
+
+    @app.get("/api/reports/training/adaptive-shock")
+    def adaptive_shock_training_report() -> dict[str, Any]:
+        path = platform.envelope.paths.report
+        if not path.exists():
+            return {"status": "WAIT", "reason": "no_adaptive_shock_training_report"}
+        return json.loads(path.read_text(encoding="utf-8"))
 
     @app.get("/api/reports/production")
     def production_report() -> dict[str, Any]:
