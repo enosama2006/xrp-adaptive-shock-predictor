@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
 import pandas as pd
 
-from .dataset_state import DatasetState, DatasetStateStore
+from .dataset_state import DatasetStateStore
 from .labeling import BarrierConfig, BarrierLabel, PricePoint, label_first_touch
 
 ANCHOR_COLUMNS = [
