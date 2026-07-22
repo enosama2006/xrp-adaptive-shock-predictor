@@ -17,13 +17,17 @@ import pandas as pd
 
 from .anchor_dataset import AnchorDatasetStore
 from .baseline import BaselineConfig, train_multinomial_baseline
+from .feature_registry import (
+    SCHEMA_VERSION as FEATURE_SCHEMA_VERSION,
+    audit_feature_columns,
+    select_model_feature_names,
+)
 from .features import build_feature_diagnostics, build_price_features, join_anchors_with_features
 from .pipeline import IncrementalResearchPipeline, PipelineConfig, PipelinePaths
 from .prediction_ledger import PredictionLedger, PredictionRecord
 
 HORIZONS = (15, 30, 45, 60)
 LABELS = ("UP_10", "DOWN_10", "NO_EVENT")
-FEATURE_SCHEMA_VERSION = "market-relative-features-v2"
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,7 +124,18 @@ class RealDataPlatform:
             raise ValueError(f"price dataset missing columns: {sorted(missing)}")
         columns = [
             name
-            for name in ("timestamp_ms", "price", "open", "high", "low", "volume")
+            for name in (
+                "timestamp_ms",
+                "price",
+                "open",
+                "high",
+                "low",
+                "volume",
+                "quote_volume",
+                "trade_count",
+                "taker_buy_base",
+                "taker_buy_quote",
+            )
             if name in frame.columns
         ]
         return (
@@ -131,8 +146,9 @@ class RealDataPlatform:
 
     @staticmethod
     def _feature_names(features: pd.DataFrame) -> list[str]:
-        excluded = {"timestamp_ms", "price", "feature_available_at_ms"}
-        return [name for name in features.columns if name not in excluded]
+        """Select only explicitly registered features; unknown columns fail closed."""
+
+        return select_model_feature_names(features)
 
     def sync_real_data(self, end_ms: int | None = None) -> None:
         cutoff = int(time.time() * 1000) if end_ms is None else end_ms
@@ -162,6 +178,7 @@ class RealDataPlatform:
         report = build_feature_diagnostics(features)
         report["generated_at_ms"] = int(time.time() * 1000)
         report["feature_schema_version"] = FEATURE_SCHEMA_VERSION
+        report["selection_audit"] = audit_feature_columns(features).to_dict()
         self.paths.feature_diagnostics.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.paths.feature_diagnostics.with_suffix(".json.tmp")
         temporary.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
