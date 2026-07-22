@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <meta name="description" content="XASP — نموذج بحثي لتوقع وصول XRP إلى ±10% خلال 15–60 دقيقة." />
-  <title>XASP — XRP Adaptive Shock Predictor</title>
+  <meta name="description" content="XASP — منصّة بحثية تفصل نموذج الصدمة عن نموذج الوصول الأول ±10%." />
+  <title>XASP — Dual Model Research Platform</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -12,144 +12,53 @@
     <header class="hero">
       <div>
         <p class="eyebrow">XRP ADAPTIVE SHOCK PREDICTOR</p>
-        <h1>هل يصل XRP أولًا إلى <span class="up">+10%</span> أم <span class="down">−10%</span> خلال الساعة القادمة؟</h1>
-        <p class="subtitle">نموذج بحثي شفاف، متعدد الآفاق، يتعلم من النتائج المتأخرة ولا يصدر إشارة تداول قبل اجتياز بوابات التحقق.</p>
+        <h1>نموذجان مستقلان، بيانات حقيقية، ونتائج منفصلة بالكامل</h1>
+        <p class="subtitle">تُجمع شموع XRP كل دقيقة، ويُبنى تاريخ تدريبي لا يقل عن سنة. يصدر كل نموذج توقعاته وتقاريره الخاصة دون دمج النتائج أو إخفاء حالة عدم الجاهزية.</p>
       </div>
       <div class="connection-card">
         <span id="connectionDot" class="dot pending"></span>
-        <div>
-          <strong id="connectionStatus">جاري الاتصال…</strong>
-          <small id="lastTick">لا توجد بيانات بعد</small>
-        </div>
+        <div><strong id="connectionStatus">جاري الاتصال…</strong><small id="lastTick">لا توجد بيانات بعد</small></div>
       </div>
     </header>
 
     <section class="status-grid">
-      <article class="metric-card">
-        <span>سعر XRP/USDT</span>
-        <strong id="xrpPrice">—</strong>
-        <small id="xrpSpread">السبريد —</small>
-      </article>
-      <article class="metric-card">
-        <span>سعر BTC/USDT</span>
-        <strong id="btcPrice">—</strong>
-        <small id="btcMomentum">زخم 5 دقائق —</small>
-      </article>
-      <article class="metric-card">
-        <span>حالة النموذج</span>
-        <strong id="modelState">إحماء</strong>
-        <small id="sampleState">0 عينة قابلة للتقييم</small>
-      </article>
-      <article class="metric-card">
-        <span>قرار النظام</span>
-        <strong id="tradeDecision" class="wait">WAIT</strong>
-        <small>لا تنفيذ أوامر في هذه المرحلة</small>
-      </article>
+      <article class="metric-card"><span>سعر XRP/USDT</span><strong id="xrpPrice">—</strong><small id="xrpReference">لا يوجد مرجع بعد</small></article>
+      <article class="metric-card"><span>سجل الأسعار</span><strong id="priceRows">0</strong><small>شموع دقيقة حقيقية محفوظة</small></article>
+      <article class="metric-card"><span>بداية البيانات</span><strong id="dataStart">—</strong><small>الهدف: سنة كاملة على الأقل</small></article>
+      <article class="metric-card"><span>حالة المنصة</span><strong id="platformState" class="wait">WAIT</strong><small id="platformReason">not_started</small></article>
     </section>
 
-    <section class="probability-panel">
-      <div class="panel-heading">
-        <div>
-          <span class="section-kicker">توقع الحدث الأول</span>
-          <h2>الاحتمالات خلال 15–60 دقيقة</h2>
-        </div>
-        <div class="confidence-badge" id="confidenceBadge">ثقة منخفضة</div>
+    <section class="model-section shock-section">
+      <div class="model-header">
+        <div><span class="model-number">MODEL A</span><h2>نموذج الصدمة التكيفي</h2><p>Adaptive Shock Magnitude Model — يتوقع نطاق الحركة الصاعدة والهابطة وشدة الصدمة المحتملة خلال 15/30/45/60 دقيقة.</p></div>
+        <div class="model-state"><span>الحالة</span><strong id="shockState">WAIT</strong><small id="shockVersion">لا يوجد نموذج مدرّب</small></div>
       </div>
-
-      <div class="probability-grid">
-        <article class="probability-card up-card">
-          <span>وصول +10% أولًا</span>
-          <strong id="upProbability">—</strong>
-          <div class="bar"><div id="upBar" class="fill up-fill"></div></div>
-          <small id="upEta">الوقت المرجح: —</small>
-        </article>
-        <article class="probability-card down-card">
-          <span>وصول −10% أولًا</span>
-          <strong id="downProbability">—</strong>
-          <div class="bar"><div id="downBar" class="fill down-fill"></div></div>
-          <small id="downEta">الوقت المرجح: —</small>
-        </article>
-        <article class="probability-card neutral-card">
-          <span>لا حدث ±10%</span>
-          <strong id="noneProbability">—</strong>
-          <div class="bar"><div id="noneBar" class="fill neutral-fill"></div></div>
-          <small>حتى نهاية 60 دقيقة</small>
-        </article>
+      <div id="shockHorizonGrid" class="horizon-card-grid"></div>
+      <div class="model-footer-grid">
+        <article class="panel"><h3>منهج النموذج</h3><div id="shockMethod" class="factor-list"></div></article>
+        <article class="panel"><h3>بوابة الجودة</h3><div id="shockGate" class="factor-list"></div></article>
       </div>
     </section>
 
-    <section class="content-grid">
-      <article class="panel wide">
-        <div class="panel-heading compact">
-          <div>
-            <span class="section-kicker">التفسير</span>
-            <h2>العوامل المؤثرة الآن</h2>
-          </div>
-          <span id="regimeTag" class="tag">نظام غير معروف</span>
-        </div>
-        <div id="factorList" class="factor-list"></div>
-      </article>
-
-      <article class="panel">
-        <div class="panel-heading compact">
-          <div>
-            <span class="section-kicker">الزمن</span>
-            <h2>مخاطر الحدث حسب الأفق</h2>
-          </div>
-        </div>
-        <div id="horizonRows" class="horizon-rows"></div>
-      </article>
-
-      <article class="panel">
-        <div class="panel-heading compact">
-          <div>
-            <span class="section-kicker">الشفافية</span>
-            <h2>جودة البيانات</h2>
-          </div>
-        </div>
-        <dl class="quality-list">
-          <div><dt>البيانات الحية</dt><dd id="dataFreshness">—</dd></div>
-          <div><dt>اكتمال الميزات</dt><dd id="featureCoverage">—</dd></div>
-          <div><dt>الانجراف</dt><dd id="driftState">غير مقاس</dd></div>
-          <div><dt>المعايرة</dt><dd id="calibrationState">غير متاحة</dd></div>
-        </dl>
-      </article>
+    <section class="model-section touch-section">
+      <div class="model-header">
+        <div><span class="model-number">MODEL B</span><h2>نموذج الوصول الأول ±10%</h2><p>±10% First-Touch Model — يتوقع هل يصل XRP إلى +10% أولًا، أو −10% أولًا، أو لا يصل إلى أي منهما ضمن الأفق.</p></div>
+        <div class="model-state"><span>الحالة</span><strong id="touchState">WAIT</strong><small id="touchVersion">لا يوجد نموذج مدرّب</small></div>
+      </div>
+      <div id="touchHorizonGrid" class="horizon-card-grid"></div>
+      <div class="model-footer-grid">
+        <article class="panel"><h3>منهج النموذج</h3><div id="touchMethod" class="factor-list"></div></article>
+        <article class="panel"><h3>بوابة الجودة</h3><div id="touchGate" class="factor-list"></div></article>
+      </div>
     </section>
 
     <section class="panel ledger-panel">
-      <div class="panel-heading compact">
-        <div>
-          <span class="section-kicker">التعلم المستمر</span>
-          <h2>سجل التوقعات والنتائج المتأخرة</h2>
-        </div>
-        <button id="clearLedger" type="button">مسح السجل المحلي</button>
-      </div>
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>وقت الإصدار</th>
-              <th>السعر المرجعي</th>
-              <th>+10%</th>
-              <th>−10%</th>
-              <th>القرار</th>
-              <th>الحالة</th>
-              <th>النتيجة</th>
-            </tr>
-          </thead>
-          <tbody id="ledgerBody">
-            <tr><td colspan="7" class="empty">لم تُسجل توقعات بعد</td></tr>
-          </tbody>
-        </table>
-      </div>
+      <div class="panel-heading compact"><div><span class="section-kicker">MODEL B فقط</span><h2>سجل توقعات الوصول الأول والنتائج المتأخرة</h2></div></div>
+      <div class="table-wrap"><table><thead><tr><th>وقت الإصدار</th><th>الأفق</th><th>السعر</th><th>+10%</th><th>−10%</th><th>لا حدث</th><th>الحالة</th><th>النتيجة</th></tr></thead><tbody id="ledgerBody"><tr><td colspan="8" class="empty">لم تُسجل توقعات بعد</td></tr></tbody></table></div>
     </section>
 
-    <section class="governance-note">
-      <strong>حوكمة البحث:</strong>
-      لا تتحول أي نتيجة إلى LONG أو SHORT قبل وجود حجم عينة كافٍ، واختبار زمني خارج العينة، ومعايرة احتمالات، وPaper Trading مستقل. النسخة الحالية أداة جمع وتجريب وليست نظام تنفيذ صفقات.
-    </section>
+    <section class="governance-note"><strong>الحكم الحالي:</strong> ظهور الصناديق لا يعني أن النموذج يعمل. الصندوق يعرض WAIT صراحةً إلى أن تتوفر سنة البيانات، يكتمل التدريب الزمني، وتجتاز بوابة الاختبار خارج العينة. التوقع كل دقيقة، وإعادة التدريب يوميًا بعد تراكم النتائج الناضجة.</section>
   </main>
-
   <script type="module" src="app.js"></script>
 </body>
 </html>
