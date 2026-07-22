@@ -149,17 +149,32 @@ class RealDataPlatformV2(RealDataPlatform):
         )
         return first_touch
 
+    def _active_first_touch_ledger(self) -> pd.DataFrame:
+        if self._bundle is None:
+            return pd.DataFrame()
+        ledger = self.ledger.load()
+        if ledger.empty:
+            return ledger
+        version = str(self._bundle["model_version"])
+        return ledger[ledger["model_version"] == version].copy()
+
+    def _active_envelope_predictions(self) -> pd.DataFrame:
+        if self.envelope.bundle is None or not self.envelope.paths.predictions.exists():
+            return pd.DataFrame()
+        predictions = pd.read_parquet(self.envelope.paths.predictions)
+        if predictions.empty:
+            return predictions
+        version = str(self.envelope.bundle["model_version"])
+        return predictions[predictions["model_version"] == version].copy()
+
     def generate_production_report(self) -> dict[str, Any]:
         self._set_lifecycle(
             "REPORT",
             progress=0.0,
             message="building_dual_model_production_report",
         )
-        ledger = self.ledger.load()
-        if self.envelope.paths.predictions.exists():
-            envelope_predictions = pd.read_parquet(self.envelope.paths.predictions)
-        else:
-            envelope_predictions = pd.DataFrame()
+        ledger = self._active_first_touch_ledger()
+        envelope_predictions = self._active_envelope_predictions()
         prices = self._load_prices() if self.paths.prices.exists() else pd.DataFrame()
         report = build_production_report(
             ledger=ledger,
