@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "xasp"
-version = "0.8.1"
+version = "0.9.0"
 description = "Governed XRP first-touch and future-envelope prediction research toolkit"
 requires-python = ">=3.11"
 dependencies = [
