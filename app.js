@@ -1,5 +1,4 @@
 const $ = (id) => document.getElementById(id);
-
 const HORIZONS = [15, 30, 45, 60];
 
 function pct(value) {
@@ -7,7 +6,7 @@ function pct(value) {
 }
 
 function price(value) {
-  return Number.isFinite(value) ? Number(value).toFixed(5) : "—";
+  return Number.isFinite(value) ? Number(value).toFixed(3) : "—";
 }
 
 function time(value) {
@@ -19,106 +18,143 @@ function setConnection(mode, text) {
   $("connectionStatus").textContent = text;
 }
 
-function renderStatus(status) {
-  const ready = status.model_available && status.state !== "WAIT";
-  setConnection(status.data_end_ms ? "live" : "pending", status.data_end_ms ? "متصل بخادم البيانات الحقيقية" : "بانتظار أول مزامنة حقيقية");
-  $("lastTick").textContent = status.data_end_ms ? `آخر دقيقة حقيقية: ${time(status.data_end_ms)}` : "لا توجد بيانات محفوظة بعد";
-  $("modelState").textContent = status.state;
-  $("sampleState").textContent = `${status.final_rows || 0} نتيجة نهائية`;
-  $("tradeDecision").textContent = "WAIT";
-  $("tradeDecision").className = "wait";
-  $("confidenceBadge").textContent = ready ? "نموذج حقيقي — بحثي" : "لا توجد ثقة قابلة للنشر";
-  $("dataFreshness").textContent = status.data_end_ms ? time(status.data_end_ms) : "غير متاحة";
-  $("featureCoverage").textContent = status.price_rows ? `${status.price_rows} دقيقة سعرية` : "0";
-  $("driftState").textContent = "يُقاس بعد تراكم التوقعات";
-  $("calibrationState").textContent = status.model_available ? "متوفرة في تقرير التدريب" : "غير متاحة";
-  $("regimeTag").textContent = status.reason || "WAIT";
+function waitShockCards() {
+  $("shockHorizonGrid").innerHTML = HORIZONS.map((h) => `
+    <article class="horizon-model-card wait-card">
+      <header><span>${h} دقيقة</span><strong>WAIT</strong></header>
+      <dl><div><dt>أعلى حركة متوقعة</dt><dd>—</dd></div><div><dt>أدنى حركة متوقعة</dt><dd>—</dd></div><div><dt>النطاق الاحتمالي</dt><dd>لم يتدرب النموذج</dd></div></dl>
+    </article>`).join("");
 }
 
-function renderPredictions(rows) {
+function waitTouchCards() {
+  $("touchHorizonGrid").innerHTML = HORIZONS.map((h) => `
+    <article class="horizon-model-card wait-card">
+      <header><span>${h} دقيقة</span><strong>WAIT</strong></header>
+      <dl><div><dt>+10% أولًا</dt><dd>—</dd></div><div><dt>−10% أولًا</dt><dd>—</dd></div><div><dt>لا حدث</dt><dd>—</dd></div></dl>
+    </article>`).join("");
+}
+
+function renderStatus(status) {
+  const connected = Boolean(status.data_end_ms);
+  setConnection(connected ? "live" : "pending", connected ? "متصل بخادم البيانات الحقيقية" : "بانتظار أول مزامنة حقيقية");
+  $("lastTick").textContent = connected ? `آخر دقيقة: ${time(status.data_end_ms)}` : "لا توجد بيانات محفوظة بعد";
+  $("priceRows").textContent = Number(status.price_rows || 0).toLocaleString("ar-SA");
+  $("dataStart").textContent = time(status.data_start_ms);
+  $("platformState").textContent = status.state || "WAIT";
+  $("platformState").className = status.state === "WAIT" ? "wait" : "";
+  $("platformReason").textContent = status.reason || "—";
+}
+
+function renderCatalog(catalog) {
+  const shock = catalog.adaptive_shock;
+  const touch = catalog.first_touch_10;
+  $("shockState").textContent = shock.available ? "READY — RESEARCH" : "WAIT";
+  $("shockVersion").textContent = shock.available ? shock.model_version : "لا يوجد نموذج مدرّب";
+  $("touchState").textContent = touch.available ? "READY — RESEARCH" : "WAIT";
+  $("touchVersion").textContent = touch.available ? touch.model_version : "لا يوجد نموذج مدرّب";
+
+  $("shockMethod").innerHTML = `
+    <div class="factor"><span>النوع</span><strong>${shock.technical_name}</strong></div>
+    <div class="factor"><span>الغرض</span><strong>${shock.purpose}</strong></div>
+    <div class="factor"><span>صفوف التدريب</span><strong>${shock.training_rows ?? "—"}</strong></div>`;
+  $("shockGate").innerHTML = `
+    <div class="factor"><span>الاختبار</span><strong>${shock.gate}</strong></div>
+    <div class="factor"><span>الترقية للتداول</span><strong>غير مفعلة</strong></div>`;
+  $("touchMethod").innerHTML = `
+    <div class="factor"><span>النوع</span><strong>${touch.technical_name}</strong></div>
+    <div class="factor"><span>الغرض</span><strong>${touch.purpose}</strong></div>
+    <div class="factor"><span>صفوف التدريب</span><strong>${touch.training_rows ?? "—"}</strong></div>`;
+  $("touchGate").innerHTML = `
+    <div class="factor"><span>الاختبار</span><strong>${touch.gate}</strong></div>
+    <div class="factor"><span>الترقية للتداول</span><strong>غير مفعلة</strong></div>`;
+}
+
+function renderShock(rows) {
   if (!rows.length) {
-    $("xrpPrice").textContent = "—";
-    $("upProbability").textContent = "—";
-    $("downProbability").textContent = "—";
-    $("noneProbability").textContent = "—";
-    $("upBar").style.width = "0%";
-    $("downBar").style.width = "0%";
-    $("noneBar").style.width = "0%";
-    $("horizonRows").innerHTML = HORIZONS.map((h) => `<div class="horizon-row"><span>${h} دقيقة</span><strong>WAIT</strong></div>`).join("");
-    $("factorList").innerHTML = '<div class="factor"><span>لا توجد احتمالات معروضة حتى يتدرب نموذج على بيانات حقيقية كافية.</span></div>';
+    waitShockCards();
     return;
   }
-
   const sorted = [...rows].sort((a, b) => a.horizon_minutes - b.horizon_minutes);
-  const sixty = sorted.find((row) => row.horizon_minutes === 60) || sorted.at(-1);
-  $("xrpPrice").textContent = price(Number(sixty.anchor_price));
-  $("xrpSpread").textContent = `مرجع التوقع: ${time(sixty.anchor_timestamp_ms)}`;
-  $("upProbability").textContent = pct(Number(sixty.p_up_10));
-  $("downProbability").textContent = pct(Number(sixty.p_down_10));
-  $("noneProbability").textContent = pct(Number(sixty.p_no_event));
-  $("upBar").style.width = `${Number(sixty.p_up_10) * 100}%`;
-  $("downBar").style.width = `${Number(sixty.p_down_10) * 100}%`;
-  $("noneBar").style.width = `${Number(sixty.p_no_event) * 100}%`;
-  $("upEta").textContent = "أفق 60 دقيقة";
-  $("downEta").textContent = "أفق 60 دقيقة";
+  const latest = sorted.at(-1);
+  $("xrpPrice").textContent = price(Number(latest.anchor_price));
+  $("xrpReference").textContent = `مرجع: ${time(latest.anchor_timestamp_ms)}`;
+  $("shockHorizonGrid").innerHTML = sorted.map((row) => `
+    <article class="horizon-model-card shock-card">
+      <header><span>${row.horizon_minutes} دقيقة</span><strong>${row.empirical_gate || "RESEARCH"}</strong></header>
+      <dl>
+        <div><dt>أعلى حركة وسطية</dt><dd class="positive">${pct(Number(row.max_return_q50))}</dd></div>
+        <div><dt>أدنى حركة وسطية</dt><dd class="negative">${pct(Number(row.min_return_q50))}</dd></div>
+        <div><dt>أعلى سعر وسطي</dt><dd>${price(Number(row.max_price_q50))}</dd></div>
+        <div><dt>أدنى سعر وسطي</dt><dd>${price(Number(row.min_price_q50))}</dd></div>
+        <div><dt>نطاق الصعود 5–95%</dt><dd>${pct(Number(row.max_return_q05))} → ${pct(Number(row.max_return_q95))}</dd></div>
+        <div><dt>نطاق الهبوط 5–95%</dt><dd>${pct(Number(row.min_return_q05))} → ${pct(Number(row.min_return_q95))}</dd></div>
+      </dl>
+    </article>`).join("");
+}
 
-  $("horizonRows").innerHTML = sorted.map((row) => `
-    <div class="horizon-row">
-      <span>${row.horizon_minutes} دقيقة</span>
-      <strong>↑ ${pct(Number(row.p_up_10))} · ↓ ${pct(Number(row.p_down_10))} · لا حدث ${pct(Number(row.p_no_event))}</strong>
-    </div>`).join("");
-
-  $("factorList").innerHTML = `
-    <div class="factor"><span>المصدر</span><strong>بيانات Binance عامة حقيقية فقط</strong></div>
-    <div class="factor"><span>إصدار النموذج</span><strong>${sixty.model_version}</strong></div>
-    <div class="factor"><span>حالة التوصية</span><strong>WAIT — لم تتم ترقية النموذج للتداول</strong></div>`;
+function renderTouch(rows) {
+  if (!rows.length) {
+    waitTouchCards();
+    return;
+  }
+  const sorted = [...rows].sort((a, b) => a.horizon_minutes - b.horizon_minutes);
+  const latest = sorted.at(-1);
+  if ($("xrpPrice").textContent === "—") {
+    $("xrpPrice").textContent = price(Number(latest.anchor_price));
+    $("xrpReference").textContent = `مرجع: ${time(latest.anchor_timestamp_ms)}`;
+  }
+  $("touchHorizonGrid").innerHTML = sorted.map((row) => {
+    const values = [Number(row.p_up_10), Number(row.p_down_10), Number(row.p_no_event)];
+    const labels = ["UP_10", "DOWN_10", "NO_EVENT"];
+    const winner = labels[values.indexOf(Math.max(...values))];
+    return `
+      <article class="horizon-model-card touch-card">
+        <header><span>${row.horizon_minutes} دقيقة</span><strong>${winner}</strong></header>
+        <dl>
+          <div><dt>+10% أولًا</dt><dd class="positive">${pct(values[0])}</dd></div>
+          <div><dt>−10% أولًا</dt><dd class="negative">${pct(values[1])}</dd></div>
+          <div><dt>لا حدث</dt><dd>${pct(values[2])}</dd></div>
+          <div><dt>قرار المنصة</dt><dd>${row.decision || "WAIT"}</dd></div>
+        </dl>
+      </article>`;
+  }).join("");
 }
 
 function renderLedger(rows) {
   const body = $("ledgerBody");
   if (!rows.length) {
-    body.innerHTML = '<tr><td colspan="7" class="empty">لم تُسجل توقعات حقيقية بعد</td></tr>';
+    body.innerHTML = '<tr><td colspan="8" class="empty">لم تُسجل توقعات حقيقية بعد</td></tr>';
     return;
   }
   body.innerHTML = rows.slice(0, 100).map((row) => `
-    <tr>
-      <td>${time(row.created_at_ms)}</td>
-      <td>${price(Number(row.anchor_price))}</td>
-      <td>${pct(Number(row.p_up_10))}</td>
-      <td>${pct(Number(row.p_down_10))}</td>
-      <td>${row.decision}</td>
-      <td>${row.status}</td>
-      <td>${row.actual_label || "معلّق"}</td>
-    </tr>`).join("");
+    <tr><td>${time(row.created_at_ms)}</td><td>${row.horizon_minutes}</td><td>${price(Number(row.anchor_price))}</td><td>${pct(Number(row.p_up_10))}</td><td>${pct(Number(row.p_down_10))}</td><td>${pct(Number(row.p_no_event))}</td><td>${row.status}</td><td>${row.actual_label || "معلّق"}</td></tr>`).join("");
 }
 
 async function refresh() {
   try {
-    const [statusResponse, predictionResponse, ledgerResponse] = await Promise.all([
+    const responses = await Promise.all([
       fetch("/api/status", { cache: "no-store" }),
-      fetch("/api/predictions/latest", { cache: "no-store" }),
+      fetch("/api/models", { cache: "no-store" }),
+      fetch("/api/models/adaptive-shock/latest", { cache: "no-store" }),
+      fetch("/api/models/first-touch/latest", { cache: "no-store" }),
       fetch("/api/ledger?limit=100", { cache: "no-store" }),
     ]);
-    if (![statusResponse, predictionResponse, ledgerResponse].every((response) => response.ok)) {
-      throw new Error("API unavailable");
-    }
-    const [status, predictions, ledger] = await Promise.all([
-      statusResponse.json(), predictionResponse.json(), ledgerResponse.json(),
-    ]);
+    if (!responses.every((response) => response.ok)) throw new Error("API unavailable");
+    const [status, catalog, shock, touch, ledger] = await Promise.all(responses.map((r) => r.json()));
     renderStatus(status);
-    renderPredictions(predictions);
+    renderCatalog(catalog);
+    renderShock(shock);
+    renderTouch(touch);
     renderLedger(ledger);
   } catch (error) {
-    setConnection("error", "الخادم غير مشغّل");
-    $("lastTick").textContent = "شغّل xasp-platform لبدء البيانات والتدريب الحقيقي";
-    $("tradeDecision").textContent = "WAIT";
-    renderPredictions([]);
+    setConnection("error", "الخادم غير مشغّل أو الدورة الأولى فشلت");
+    $("lastTick").textContent = "راجع نافذة التشغيل لمعرفة سبب WAIT";
+    waitShockCards();
+    waitTouchCards();
   }
 }
 
-$("clearLedger").disabled = true;
-$("clearLedger").title = "السجل الحقيقي غير قابل للمسح من الواجهة";
-$("btcPrice").textContent = "—";
-$("btcMomentum").textContent = "سيُربط ضمن مصفوفة السوق";
+waitShockCards();
+waitTouchCards();
 refresh();
 setInterval(refresh, 5_000);
