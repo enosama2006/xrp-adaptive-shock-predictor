@@ -24,7 +24,12 @@ from .feature_registry import (
 )
 from .features import build_feature_diagnostics, build_price_features, join_anchors_with_features
 from .labeling import CandlePoint
-from .pipeline import IncrementalResearchPipeline, PipelineConfig, PipelinePaths
+from .pipeline import (
+    IncrementalResearchPipeline,
+    PipelineConfig,
+    PipelinePaths,
+    PipelineProgress,
+)
 from .prediction_ledger import PredictionLedger, PredictionRecord
 
 HORIZONS = (15, 30, 45, 60)
@@ -52,6 +57,7 @@ class RuntimeConfig:
     retrain_after_new_final_rows: int = 500
     prediction_cadence_ms: int = 60_000
     training_enabled: bool = True
+    checkpoint_rows: int = 10_000
 
 
 @dataclass(slots=True)
@@ -69,6 +75,17 @@ class PlatformStatus:
     last_training_final_rows: int
     data_start_ms: int | None
     data_end_ms: int | None
+    lifecycle_stage: str = "IDLE"
+    lifecycle_progress: float = 0.0
+    lifecycle_message: str = "not_started"
+    cycle_started_at_ms: int | None = None
+    last_successful_cycle_ms: int | None = None
+    requested_start_ms: int | None = None
+    requested_end_ms: int | None = None
+    expected_rows: int = 0
+    processed_rows: int = 0
+    checkpoint_writes: int = 0
+    current_watermark_ms: int | None = None
 
 
 class RealDataPlatform:
@@ -79,20 +96,23 @@ class RealDataPlatform:
         self.config = config
         self.pipeline = IncrementalResearchPipeline(
             PipelinePaths(paths.prices, paths.anchors, paths.state),
-            PipelineConfig(symbol=config.symbol, bootstrap_start_ms=config.bootstrap_start_ms),
+            PipelineConfig(
+                symbol=config.symbol,
+                bootstrap_start_ms=config.bootstrap_start_ms,
+                checkpoint_rows=config.checkpoint_rows,
+            ),
         )
         self.ledger = PredictionLedger(paths.ledger)
         self._bundle: dict[str, Any] | None = None
         self._status = self._load_status()
+        self._active_collection_stage = "SYNC_MISSING_TAIL"
         if paths.models.exists():
             loaded = joblib.load(paths.models)
             if isinstance(loaded, dict):
                 self._bundle = loaded
 
-    def _load_status(self) -> PlatformStatus:
-        if self.paths.status.exists():
-            payload = json.loads(self.paths.status.read_text(encoding="utf-8"))
-            return PlatformStatus(**payload)
+    @staticmethod
+    def _new_status() -> PlatformStatus:
         return PlatformStatus(
             updated_at_ms=int(time.time() * 1000),
             state="WAIT",
@@ -109,6 +129,17 @@ class RealDataPlatform:
             data_end_ms=None,
         )
 
+    def _load_status(self) -> PlatformStatus:
+        default = self._new_status()
+        if not self.paths.status.exists():
+            return default
+        payload = json.loads(self.paths.status.read_text(encoding="utf-8"))
+        merged = asdict(default)
+        for name in merged:
+            if name in payload:
+                merged[name] = payload[name]
+        return PlatformStatus(**merged)
+
     def _save_status(self) -> None:
         self.paths.status.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.paths.status.with_suffix(".json.tmp")
@@ -116,6 +147,42 @@ class RealDataPlatform:
             json.dumps(asdict(self._status), indent=2, sort_keys=True), encoding="utf-8"
         )
         temporary.replace(self.paths.status)
+
+    def _set_lifecycle(
+        self,
+        stage: str,
+        *,
+        progress: float | None = None,
+        message: str | None = None,
+        save: bool = True,
+    ) -> None:
+        self._status.lifecycle_stage = stage
+        if progress is not None:
+            self._status.lifecycle_progress = min(1.0, max(0.0, float(progress)))
+        if message is not None:
+            self._status.lifecycle_message = message
+        self._status.updated_at_ms = int(time.time() * 1000)
+        if save:
+            self._save_status()
+
+    def _on_pipeline_progress(self, progress: PipelineProgress) -> None:
+        stage = (
+            self._active_collection_stage
+            if progress.stage == "COLLECT_HISTORY"
+            else progress.stage
+        )
+        self._status.lifecycle_stage = stage
+        self._status.lifecycle_progress = progress.progress_fraction
+        self._status.lifecycle_message = progress.stage.lower()
+        self._status.requested_start_ms = progress.requested_start_ms
+        self._status.requested_end_ms = progress.requested_end_ms
+        self._status.expected_rows = progress.expected_rows
+        self._status.processed_rows = progress.processed_rows
+        self._status.checkpoint_writes = progress.checkpoint_writes
+        self._status.current_watermark_ms = progress.current_watermark_ms
+        self._status.price_rows = progress.total_price_rows
+        self._status.updated_at_ms = int(time.time() * 1000)
+        self._save_status()
 
     def _load_prices(self) -> pd.DataFrame:
         frame = pd.read_parquet(self.paths.prices)
@@ -153,7 +220,26 @@ class RealDataPlatform:
 
     def sync_real_data(self, end_ms: int | None = None) -> None:
         cutoff = int(time.time() * 1000) if end_ms is None else end_ms
-        self.pipeline.run(cutoff)
+        fresh_bootstrap = not self.paths.prices.exists() or self._status.price_rows == 0
+        self._active_collection_stage = (
+            "BOOTSTRAP_HISTORY" if fresh_bootstrap else "SYNC_MISSING_TAIL"
+        )
+        self._status.cycle_started_at_ms = int(time.time() * 1000)
+        self._status.state = "WAIT"
+        self._status.reason = "data_collection_in_progress"
+        self._set_lifecycle(
+            self._active_collection_stage,
+            progress=0.0,
+            message="collecting_completed_market_candles",
+        )
+
+        result = self.pipeline.run(cutoff, progress_callback=self._on_pipeline_progress)
+        self._status.checkpoint_writes = result.checkpoint_writes
+        self._set_lifecycle(
+            "BUILD_FEATURES",
+            progress=0.0,
+            message="building_causal_feature_matrix",
+        )
         prices = self._load_prices()
         features = build_price_features(prices)
         self.paths.features.parent.mkdir(parents=True, exist_ok=True)
@@ -170,10 +256,15 @@ class RealDataPlatform:
         self._status.pending_rows = pending_rows
         self._status.data_start_ms = None if prices.empty else int(prices["timestamp_ms"].min())
         self._status.data_end_ms = None if prices.empty else int(prices["timestamp_ms"].max())
+        self._status.current_watermark_ms = self._status.data_end_ms
         self._status.updated_at_ms = cutoff
         self._status.state = "WAIT"
         self._status.reason = "real_data_synced_model_gate_pending"
-        self._save_status()
+        self._set_lifecycle(
+            "DATA_READY",
+            progress=1.0,
+            message="real_data_and_features_ready_for_model_gates",
+        )
 
     def _save_feature_diagnostics(self, features: pd.DataFrame) -> None:
         report = build_feature_diagnostics(features)
@@ -199,13 +290,18 @@ class RealDataPlatform:
         if not due:
             return False
 
+        self._set_lifecycle(
+            "TRAIN_MODEL_B",
+            progress=0.0,
+            message="training_first_touch_challenger",
+        )
         self._save_feature_diagnostics(features)
         matrix = join_anchors_with_features(anchors, features)
         feature_names = self._feature_names(features)
         models: dict[int, Any] = {}
         reports: dict[str, Any] = {}
         all_ready = True
-        for horizon in HORIZONS:
+        for index, horizon in enumerate(HORIZONS, start=1):
             subset = matrix[matrix["horizon_minutes"] == horizon].copy()
             horizon_ms = horizon * 60_000
             model, report = train_multinomial_baseline(
@@ -222,6 +318,11 @@ class RealDataPlatform:
                 all_ready = False
             else:
                 models[horizon] = model
+            self._set_lifecycle(
+                "TRAIN_MODEL_B",
+                progress=index / len(HORIZONS),
+                message=f"trained_or_evaluated_horizon_{horizon}m",
+            )
 
         self.paths.reports.parent.mkdir(parents=True, exist_ok=True)
         self.paths.reports.write_text(
@@ -231,7 +332,11 @@ class RealDataPlatform:
             self._status.state = "WAIT"
             self._status.reason = "insufficient_real_training_evidence"
             self._status.last_training_final_rows = final_count
-            self._save_status()
+            self._set_lifecycle(
+                "MODEL_B_WAIT",
+                progress=1.0,
+                message="model_b_evidence_gate_failed_or_insufficient",
+            )
             return False
 
         version = f"real-logistic-{int(time.time())}"
@@ -256,7 +361,11 @@ class RealDataPlatform:
         self._status.last_training_final_rows = final_count
         self._status.state = "RESEARCH_ONLY"
         self._status.reason = "real_model_fitted_not_yet_trading_promoted"
-        self._save_status()
+        self._set_lifecycle(
+            "MODEL_B_RESEARCH_READY",
+            progress=1.0,
+            message="model_b_empirical_gate_passed",
+        )
         return True
 
     def predict_latest(self, now_ms: int | None = None) -> list[dict[str, Any]]:
@@ -273,6 +382,7 @@ class RealDataPlatform:
         ):
             return []
 
+        self._set_lifecycle("PREDICT", progress=0.0, message="creating_model_b_predictions")
         features = pd.read_parquet(self.paths.features)
         if features.empty:
             return []
@@ -317,11 +427,20 @@ class RealDataPlatform:
             self.ledger.append(records)
             self._status.last_prediction_ms = timestamp
             self._status.updated_at_ms = timestamp
-            self._save_status()
+            self._set_lifecycle(
+                "PREDICTIONS_STORED",
+                progress=1.0,
+                message="model_b_predictions_written_before_outcomes",
+            )
         return output
 
     def mature_predictions(self, now_ms: int | None = None) -> None:
         timestamp = int(time.time() * 1000) if now_ms is None else now_ms
+        self._set_lifecycle(
+            "MATURE_OUTCOMES",
+            progress=0.0,
+            message="maturing_eligible_model_b_predictions",
+        )
         prices = self._load_prices()
         candles = [
             CandlePoint(
@@ -334,12 +453,24 @@ class RealDataPlatform:
             for row in prices.itertuples(index=False)
         ]
         self.ledger.mature_candles(candles, timestamp)
+        self._set_lifecycle(
+            "OUTCOMES_MATURED",
+            progress=1.0,
+            message="eligible_model_b_outcomes_resolved",
+        )
 
     def run_cycle(self, force_train: bool = False) -> dict[str, Any]:
         self.sync_real_data()
         trained = self.train_if_due(force=force_train)
         predictions = self.predict_latest()
         self.mature_predictions()
+        completed_at = int(time.time() * 1000)
+        self._status.last_successful_cycle_ms = completed_at
+        self._set_lifecycle(
+            "LIVE_IDLE",
+            progress=1.0,
+            message="cycle_complete_waiting_for_next_completed_minute",
+        )
         return {
             "status": asdict(self._status),
             "trained": trained,
