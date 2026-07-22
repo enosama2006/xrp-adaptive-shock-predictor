@@ -9,7 +9,7 @@ from typing import Any
 import pandas as pd
 
 from .anchor_dataset import AnchorDatasetStore
-from .envelope_engine import EnvelopeEngine
+from .envelope_engine import EnvelopeEngine, EnvelopePaths
 from .platform_runtime import PlatformStatus, RealDataPlatform, RuntimeConfig, RuntimePaths
 from .production_report import build_production_report, save_production_report
 
@@ -19,7 +19,14 @@ class RealDataPlatformV2(RealDataPlatform):
 
     def __init__(self, paths: RuntimePaths, config: RuntimeConfig) -> None:
         super().__init__(paths, config)
-        self.envelope = EnvelopeEngine()
+        self.envelope = EnvelopeEngine(
+            EnvelopePaths(
+                targets=paths.prices.parent / "future_envelopes.parquet",
+                model=paths.models.parent / "envelope_champion.joblib",
+                report=paths.reports.parent / "envelope_training.json",
+                predictions=paths.ledger.parent / "envelope_predictions.parquet",
+            )
+        )
         self._latest_envelope_predictions: list[dict[str, Any]] = []
         self._last_envelope_training_final_rows = 0
         if self.envelope.bundle is not None:
