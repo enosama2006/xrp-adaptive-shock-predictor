@@ -1,4 +1,4 @@
-"""XASP runtime v2: two parallel models trained only from observed data."""
+"""XASP runtime v2: two independent models trained only from observed data."""
 
 from __future__ import annotations
 
@@ -26,6 +26,30 @@ class RealDataPlatformV2(RealDataPlatform):
             self._last_envelope_training_final_rows = int(
                 self.envelope.bundle.get("training_final_rows", 0)
             )
+        self._refresh_research_state(save=False)
+
+    def _refresh_research_state(self, *, save: bool = True) -> None:
+        touch_ready = self._bundle is not None
+        envelope_ready = self.envelope.bundle is not None
+        if touch_ready and envelope_ready:
+            self.status.state = "RESEARCH_ONLY"
+            self.status.reason = "dual_models_research_monitoring_only"
+        elif envelope_ready:
+            self.status.state = "PARTIAL_RESEARCH"
+            self.status.reason = "model_a_ready_model_b_directional_gate_wait"
+        elif touch_ready:
+            self.status.state = "PARTIAL_RESEARCH"
+            self.status.reason = "model_b_ready_model_a_evidence_gate_wait"
+        else:
+            self.status.state = "WAIT"
+            if self.status.reason in {
+                "not_started",
+                "real_data_synced_model_gate_pending",
+                "real_data_synced_directional_model_gate_pending",
+            }:
+                self.status.reason = "both_model_evidence_gates_pending"
+        if save:
+            self._save_status()
 
     def sync_real_data(self, end_ms: int | None = None) -> None:
         super().sync_real_data(end_ms)
@@ -35,6 +59,7 @@ class RealDataPlatformV2(RealDataPlatform):
             message="building_observed_future_excursion_targets",
         )
         self.envelope.rebuild_targets(self._load_prices())
+        self._refresh_research_state(save=False)
         self._set_lifecycle(
             "TARGETS_A_READY",
             progress=1.0,
@@ -52,8 +77,10 @@ class RealDataPlatformV2(RealDataPlatform):
             + self.config.retrain_after_new_final_rows
         )
         if not (force or (enough_rows and enough_new_rows)):
+            self._refresh_research_state()
             return first_touch_trained
 
+        had_envelope_champion = self.envelope.bundle is not None
         self._set_lifecycle(
             "TRAIN_MODEL_A",
             progress=0.0,
@@ -71,16 +98,18 @@ class RealDataPlatformV2(RealDataPlatform):
         )
         self._last_envelope_training_final_rows = final_count
         if not envelope_trained:
-            self.status.state = "WAIT"
-            self.status.reason = (
-                "parallel_envelope_empirical_coverage_below_85_or_insufficient_rows"
-            )
+            self._refresh_research_state(save=False)
             self._set_lifecycle(
                 "MODEL_A_WAIT",
                 progress=1.0,
-                message="model_a_evidence_gate_failed_or_insufficient",
+                message=(
+                    "model_a_challenger_rejected_champion_retained"
+                    if had_envelope_champion
+                    else "model_a_evidence_gate_failed_or_insufficient"
+                ),
             )
         else:
+            self._refresh_research_state(save=False)
             self._set_lifecycle(
                 "MODEL_A_RESEARCH_READY",
                 progress=1.0,
@@ -151,9 +180,11 @@ class RealDataPlatformV2(RealDataPlatform):
         trained = self.train_if_due(force=force_train)
         first_touch_predictions = self.predict_latest()
         self.mature_predictions()
+        self._refresh_research_state()
         report = self.generate_production_report()
         completed_at = int(time.time() * 1000)
         self.status.last_successful_cycle_ms = completed_at
+        self._refresh_research_state(save=False)
         self._set_lifecycle(
             "LIVE_IDLE",
             progress=1.0,
