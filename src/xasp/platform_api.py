@@ -13,11 +13,11 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 import uvicorn
 
-from .platform_runtime import RealDataPlatform, RuntimeConfig, RuntimePaths
+from .platform_runtime_v2 import RealDataPlatformV2, RuntimeConfig, RuntimePaths
 
 
-def create_app(platform: RealDataPlatform, web_root: Path = Path(".")) -> FastAPI:
-    app = FastAPI(title="XASP Real Data Platform", version="0.6.0")
+def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> FastAPI:
+    app = FastAPI(title="XASP Real Data Platform", version="0.7.0")
     cycle_lock = Lock()
 
     @app.on_event("startup")
@@ -45,7 +45,13 @@ def create_app(platform: RealDataPlatform, web_root: Path = Path(".")) -> FastAP
 
     @app.get("/api/status")
     def status() -> dict[str, Any]:
-        return asdict(platform.status)
+        payload = asdict(platform.status)
+        payload["envelope_model_available"] = platform.envelope.bundle is not None
+        payload["required_empirical_confidence"] = 0.85
+        payload["confidence_note"] = (
+            "85% is an empirical out-of-sample gate, not a guarantee of future correctness"
+        )
+        return payload
 
     @app.get("/api/predictions/latest")
     def latest_predictions() -> list[dict[str, Any]]:
@@ -56,9 +62,17 @@ def create_app(platform: RealDataPlatform, web_root: Path = Path(".")) -> FastAP
         subset = frame[frame["anchor_timestamp_ms"] == latest_anchor]
         return subset.where(subset.notna(), None).to_dict(orient="records")
 
+    @app.get("/api/envelope/latest")
+    def latest_envelope() -> list[dict[str, Any]]:
+        return platform.envelope.latest_predictions()
+
     @app.get("/api/ledger")
     def ledger(limit: int = 100) -> list[dict[str, Any]]:
-        frame = platform.ledger.load().sort_values("created_at_ms", ascending=False).head(max(1, min(limit, 1000)))
+        frame = (
+            platform.ledger.load()
+            .sort_values("created_at_ms", ascending=False)
+            .head(max(1, min(limit, 1000)))
+        )
         return frame.where(frame.notna(), None).to_dict(orient="records")
 
     @app.post("/api/run-cycle")
@@ -89,14 +103,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Run XASP with real Binance data only")
     parser.add_argument("--bootstrap-start-ms", required=True, type=int)
     parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", default=8000, type=int)
+    parser.add_argument("--port", default=8654, type=int)
     parser.add_argument("--minimum-final-rows", default=2_000, type=int)
     return parser
 
 
 def main() -> None:
     args = build_parser().parse_args()
-    platform = RealDataPlatform(
+    platform = RealDataPlatformV2(
         RuntimePaths(),
         RuntimeConfig(
             bootstrap_start_ms=args.bootstrap_start_ms,
