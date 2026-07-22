@@ -8,10 +8,14 @@ from typing import Protocol
 
 import pandas as pd
 
-from .anchor_dataset import AnchorDatasetConfig, AnchorDatasetStore, update_anchor_dataset
+from .anchor_dataset import (
+    AnchorDatasetConfig,
+    AnchorDatasetStore,
+    update_anchor_dataset_from_candles,
+)
 from .data.binance import BinanceDataClient
 from .dataset_state import DatasetStateStore
-from .labeling import PricePoint
+from .labeling import CandlePoint
 
 MINUTE_MS = 60_000
 CORE_PRICE_COLUMNS = ["timestamp_ms", "price", "open", "high", "low", "volume"]
@@ -76,11 +80,7 @@ def _atomic_write_parquet(frame: pd.DataFrame, path: Path) -> None:
 
 
 def _normalize_completed_minute_timestamp(timestamp_ms: int) -> int:
-    """Normalize Binance ``closeTime`` (...59,999) to its availability boundary.
-
-    A completed candle ending at 12:00:59.999 becomes available at 12:01:00.000.
-    Exact minute-boundary timestamps are already normalized and remain unchanged.
-    """
+    """Normalize Binance ``closeTime`` (...59,999) to its availability boundary."""
 
     return timestamp_ms + 1 if timestamp_ms % MINUTE_MS == MINUTE_MS - 1 else timestamp_ms
 
@@ -159,8 +159,23 @@ def _merge_prices(existing: pd.DataFrame, incoming: pd.DataFrame) -> pd.DataFram
     return combined.reindex(columns=PRICE_COLUMNS)
 
 
+def _to_candles(frame: pd.DataFrame) -> list[CandlePoint]:
+    candles: list[CandlePoint] = []
+    for row in frame.itertuples(index=False):
+        candles.append(
+            CandlePoint(
+                timestamp_ms=int(row.timestamp_ms),
+                open=float(row.open),
+                high=float(row.high),
+                low=float(row.low),
+                close=float(row.price),
+            )
+        )
+    return candles
+
+
 class IncrementalResearchPipeline:
-    """Backfill only the missing tail, then update pending/final anchor labels."""
+    """Backfill only the missing tail, then update pending/final OHLC labels."""
 
     def __init__(
         self,
@@ -205,12 +220,8 @@ class IncrementalResearchPipeline:
         if not merged.empty:
             _atomic_write_parquet(merged, self.paths.prices)
 
-        points = [
-            PricePoint(timestamp_ms=int(row.timestamp_ms), price=float(row.price))
-            for row in merged.itertuples(index=False)
-        ]
-        anchors = update_anchor_dataset(
-            points,
+        anchors = update_anchor_dataset_from_candles(
+            _to_candles(merged),
             AnchorDatasetStore(self.paths.anchors),
             DatasetStateStore(self.paths.state),
             self.config.anchor_config,
