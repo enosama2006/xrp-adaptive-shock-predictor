@@ -44,11 +44,17 @@ jobs:
       - name: Tests
         run: pytest --cov=xasp --cov-report=term-missing
 
+      - name: Validate browser JavaScript syntax
+        run: node --check app.js
+
       - name: Platform import smoke check
         run: |
           python - <<'PY'
           from xasp.platform_api import create_app
+          from xasp.platform_runtime import PlatformStatus
           from xasp.platform_runtime_v2 import RealDataPlatformV2
           from xasp.future_envelope import build_future_envelope_targets
+          from xasp.feature_registry import select_model_feature_names
+          from xasp.pipeline import PipelineProgress
           print("XASP platform imports passed")
           PY
