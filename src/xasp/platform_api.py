@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 from dataclasses import asdict
+import json
 from pathlib import Path
 from threading import Lock
 from typing import Any
@@ -14,10 +15,11 @@ from fastapi.responses import FileResponse
 import uvicorn
 
 from .platform_runtime_v2 import RealDataPlatformV2, RuntimeConfig, RuntimePaths
+from .production_report import ProductionReportPaths
 
 
 def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> FastAPI:
-    app = FastAPI(title="XASP Real Data Platform", version="0.7.1")
+    app = FastAPI(title="XASP Real Data Platform", version="0.8.0")
     cycle_lock = Lock()
 
     @app.on_event("startup")
@@ -47,6 +49,7 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
     @app.get("/api/health")
     def health() -> dict[str, Any]:
         paths = platform.paths
+        report_paths = ProductionReportPaths()
         storage = {
             "prices": paths.prices.exists(),
             "anchors": paths.anchors.exists(),
@@ -58,6 +61,8 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
             "envelope_targets": platform.envelope.paths.targets.exists(),
             "envelope_model": platform.envelope.paths.model.exists(),
             "envelope_report": platform.envelope.paths.report.exists(),
+            "production_report": report_paths.latest_json.exists(),
+            "production_report_history": report_paths.history_jsonl.exists(),
         }
         return {
             "service": "UP",
@@ -104,6 +109,22 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
             .head(max(1, min(limit, 1000)))
         )
         return frame.where(frame.notna(), None).to_dict(orient="records")
+
+    @app.get("/api/reports/production")
+    def production_report() -> dict[str, Any]:
+        path = ProductionReportPaths().latest_json
+        if not path.exists():
+            return platform.generate_production_report()
+        return json.loads(path.read_text(encoding="utf-8"))
+
+    @app.post("/api/reports/production/refresh")
+    def refresh_production_report() -> dict[str, Any]:
+        if not cycle_lock.acquire(blocking=False):
+            return {"state": "BUSY"}
+        try:
+            return platform.generate_production_report()
+        finally:
+            cycle_lock.release()
 
     @app.post("/api/run-cycle")
     def run_cycle() -> dict[str, Any]:
