@@ -6,7 +6,7 @@ This note updates `REFACTOR_AUDIT_2026-07-23.md`. The audit records the defects 
 
 ### Product and documentation
 
-- Frozen the two-model contract across README, master plan, status, and TODO.
+- Frozen the two-model contract across README, master plan, status, TODO, and the phased execution plan.
 - Model A and Model B remain independent in names, targets, artifacts, reports, and UI/API outputs.
 
 ### Feature governance
@@ -21,6 +21,20 @@ This note updates `REFACTOR_AUDIT_2026-07-23.md`. The audit records the defects 
 - Excluded a currently forming candle when its availability timestamp is after the collection cutoff.
 - Preserved real quote volume, trade count, taker-buy base volume, and taker-buy quote volume.
 - Added causal log/normalized trade-flow features, taker-buy ratio, signed-volume proxy, trade intensity, average trade size, and availability masks.
+
+### Restart-safe bootstrap and lifecycle — Phase 1 started
+
+- Replaced the single unbounded historical materialization with bounded checkpoint batches.
+- Added configurable `checkpoint_rows` with a default of 10,000 records.
+- Persisted each accepted batch atomically before the next batch is requested.
+- Advanced the raw-data watermark after every successful checkpoint.
+- Added restart tests that simulate a connection failure after completed checkpoints and prove the next run resumes from the persisted tail.
+- Added lifecycle stages for bootstrap, missing-tail synchronization, anchor creation, feature creation, Model A/B targets and training, prediction, maturation, reporting, idle, and errors.
+- Added lifecycle progress, expected rows, processed rows, checkpoint count, and current watermark to persisted status and API responses.
+- Added backward-compatible migration for older status JSON files.
+- Added a visible lifecycle progress panel to the Arabic dashboard.
+- Added separate health flags for Model A and Model B research readiness rather than requiring both models to exist.
+- Added fail-closed `ERROR` lifecycle handling while preserving confirmed checkpoints.
 
 ### Model B target correctness
 
@@ -55,13 +69,17 @@ This note updates `REFACTOR_AUDIT_2026-07-23.md`. The audit records the defects 
 - OHLC intraminute barrier touch, same-candle ambiguity, internal-gap exclusion, and anchor integration.
 - Trade-flow feature transformation and invalid taker-volume rejection.
 - Order-book far-wall non-influence and context exclusion.
+- Historical checkpoint persistence after simulated connection loss.
+- Restart from the last confirmed checkpoint and completion of the requested range.
+- Legacy status migration and lifecycle progress persistence.
+- CI JavaScript syntax validation for the lifecycle dashboard.
 
 ## Still pending
 
-- Run the complete test suite and static checks from a clean checkout after these commits.
-- Record successful CI evidence; no commit status is currently available through the connector.
-- Implement page/chunk checkpointing and visible bootstrap progress.
-- Avoid holding the entire one-year API result only in memory before final persistence.
+- Run the complete test suite, lint, type checks, JavaScript syntax check, and import smoke check from a clean checkout after these commits.
+- Record successful CI evidence; no successful workflow status has yet been returned through the connector.
+- Improve historical storage from one compact Parquet file to partitioned raw/event storage with manifests and hashes.
+- Refine bootstrap classification so an interrupted first-year bootstrap remains explicitly `BOOTSTRAP_HISTORY` until minimum coverage is proven.
 - Add fully independent lifecycle state and production ledger/report for Model A.
 - Add restart-safe live depth collection, snapshot/delta sequence validation, OFI, depletion, replenishment, cancellation, and wall persistence.
 - Join BTC/ETH, funding, open interest, basis, mark/index price, and liquidations through point-in-time availability masks.
@@ -71,6 +89,6 @@ This note updates `REFACTOR_AUDIT_2026-07-23.md`. The audit records the defects 
 
 ## Verification status
 
-The code changes above are committed to `main`, but they have not been executed in this environment because the GitHub repository cannot be cloned from the runtime network and no CI status is currently returned. They must be treated as **implemented but unverified** until the local integration launcher or CI completes successfully.
+The code changes above are committed to `main`, but they have not been executed in this environment. They must be treated as **implemented but unverified** until the local integration launcher or GitHub Actions completes successfully.
 
 Official action remains `WAIT`.
