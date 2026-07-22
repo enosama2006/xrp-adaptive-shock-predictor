@@ -1,297 +1,230 @@
-# XASP — Execution & Review Checklist
+# XASP — Refactor & Production-Readiness Checklist
 
-This file is the single source of truth for completing the XRP Adaptive Shock Predictor.
+Updated: 2026-07-23
 
 Status legend:
+
 - `[ ]` not started
-- `[-]` in progress
-- `[x]` completed with evidence
+- `[-]` in progress / code exists but evidence is incomplete
+- `[x]` completed with code, tests, and reproducible evidence
 - `[!]` blocked or failed review
 
-A task may be marked complete only when code, tests, reproducibility evidence, and review notes all exist.
+Nothing is complete merely because a file or dashboard box exists.
 
 ---
 
-## 0. Program governance
+## G0 — Freeze the product contract
 
-- [ ] Freeze the scientific objective: first-touch `+10%`, first-touch `-10%`, or `NO_EVENT` within 15/30/45/60 minutes.
-- [ ] Freeze the rule that user-facing trade state remains `WAIT` until all promotion gates pass.
-- [ ] Define approved data sources, licensing, rate limits, retention, and failure handling.
-- [ ] Define model-risk roles: builder, reviewer, approver, and rollback owner.
-- [ ] Define immutable experiment IDs, dataset hashes, feature schema version, and model version.
-- [ ] Define incident classes: stale data, sequence gap, leakage, numerical divergence, calibration failure, drift, and execution mismatch.
-- [ ] Add a decision log for every material methodology change.
+- [x] Define Model A as independent future-excursion / adaptive-shock magnitude forecasting.
+- [x] Define Model B as independent ±10% first-touch classification.
+- [x] Separate the two models in the dashboard and API names.
+- [x] Document that both models share data/features only, not targets, artifacts, reports, or readiness.
+- [x] Preserve `WAIT` as the official action until evidence gates pass.
+- [x] Prohibit fabricated market rows, labels, order books, probabilities, and fills.
+- [ ] Add a formal decision log for every methodology change.
 
-### Completion gate G0
+## G1 — Historical and live data lifecycle
 
-- [ ] Governance documents exist and conflict checks pass.
-- [ ] No code path can emit executable LONG/SHORT.
-- [ ] Every future phase references explicit acceptance criteria.
+- [-] Backfill at least 365 days of `XRPUSDT` one-minute completed candles.
+- [ ] Normalize Binance close timestamps to exact completed-candle availability boundaries.
+- [ ] Migrate legacy local timestamps ending in `59,999` safely and idempotently.
+- [ ] Persist backfill in restart-safe pages/chunks rather than only after full materialization.
+- [ ] Expose bootstrap progress and retry/failure state through API and UI.
+- [-] Resume only the missing tail with overlap and deduplication.
+- [ ] Preserve quote volume, trade count, taker-buy base, and taker-buy quote.
+- [ ] Add historical BTCUSDT and ETHUSDT minute context.
+- [ ] Join funding, OI, mark/index/basis, and liquidation streams by availability time.
+- [ ] Produce manifests, hashes, gap reports, and source coverage reports.
+- [ ] Prove seven consecutive days of restart-safe live collection.
 
----
+### G1 acceptance
 
-## 1. Data acquisition and storage
-
-### 1.1 Spot market
-
-- [ ] Build historical XRPUSDT and BTCUSDT trade collector.
-- [ ] Build live trade collector with reconnect, backfill, deduplication, and monotonic sequence checks.
-- [ ] Collect best bid/ask and multi-level order-book snapshots and deltas.
-- [ ] Reconstruct order books and detect sequence gaps.
-- [ ] Record exchange timestamp, receive timestamp, latency, and source health.
-
-### 1.2 Derivatives
-
-- [ ] Collect XRP perpetual trades and book data.
-- [ ] Collect open interest and change in open interest.
-- [ ] Collect funding, basis, mark price, index price, and premium.
-- [ ] Collect liquidation events where available.
-- [ ] Validate timestamp alignment with spot data.
-
-### 1.3 Cross-market context
-
-- [ ] Collect BTC, ETH, broad-market volume, breadth, and dominance proxies.
-- [ ] Add session/time features without future information.
-- [ ] Create an optional event/news ingestion contract, isolated from the core model.
-
-### 1.4 Storage and quality
-
-- [ ] Design append-only raw schemas.
-- [ ] Partition by source, symbol, date, and event type.
-- [ ] Add dataset manifests, row counts, min/max timestamps, checksums, and gap reports.
-- [ ] Add idempotent backfill jobs.
-- [ ] Add source-quality dashboards and alerts.
-
-### Completion gate G1
-
-- [ ] Seven consecutive days of live collection without silent gaps.
-- [ ] Historical replay reproduces identical event ordering and hashes.
-- [ ] Order-book reconstruction tests pass on normal, missing, duplicate, and out-of-order messages.
-- [ ] All unavailable or stale sources fail closed.
+- [ ] >=365 days stored or source limitation explicitly documented.
+- [ ] >=99.5% justified minute coverage.
+- [ ] no silent duplicates, backward timestamps, or unresolved gaps.
+- [ ] startup after interruption resumes from the correct watermark.
 
 ---
 
-## 2. Event labeling
+## G2 — Feature engineering and governance
 
-- [ ] Implement immutable first-touch labels for 15, 30, 45, and 60 minutes.
-- [ ] Record reference price, upper/lower barriers, first-hit side, first-hit time, MFE, MAE, and path completeness.
-- [ ] Define same-timestamp dual-hit handling as `AMBIGUOUS` unless ordering is provable.
-- [ ] Define incomplete windows and data-gap exclusion rules.
-- [ ] Group overlapping forecasts into event clusters for evaluation.
-- [ ] Create label-distribution reports by year, month, regime, and horizon.
-- [ ] Test label invariance under replay and chunk boundaries.
+### Historical price/trade-flow features
 
-### Completion gate G2
+- [x] returns and log returns.
+- [x] rolling volatility, range position, drawdown, and distance from low.
+- [x] rolling price z-score and robust return z-score.
+- [x] `log1p(volume)` and rolling volume normalization.
+- [x] feature histograms, quantiles, skewness, IQR, and missingness diagnostics.
+- [ ] quote-volume normalization.
+- [ ] taker-buy ratio and signed-volume proxy.
+- [ ] trade intensity and average trade size.
+- [ ] volatility-of-volatility, VWAP distance, breakout strength, and trend consistency.
 
-- [ ] Golden test fixtures cover `UP_10`, `DOWN_10`, `NO_EVENT`, `AMBIGUOUS`, and `INCOMPLETE`.
-- [ ] Repeated labeling over the same raw data produces byte-identical output.
-- [ ] No future-close shortcut replaces first-touch logic.
+### Explicit feature registry
 
----
+- [-] Replace implicit "all numeric columns" selection with a fail-closed registry.
+- [ ] Record formula, source, lookback, availability, missing policy, scaling, and model eligibility.
+- [ ] Unknown numeric columns excluded by default and listed in diagnostics.
+- [ ] Add source-availability masks and missingness indicators.
+- [ ] Add offline/live feature parity tests.
 
-## 3. Feature engineering
+### Order-book and supply/demand rules
 
-### 3.1 Price and volatility
+- [x] Implement near-price bands: 5/10/25/50/100/200/500/1000 bps.
+- [x] Implement exponential distance-weighted depth.
+- [ ] Restrict primary pressure features to <=200 bps.
+- [ ] Treat 500/1000 bps as context, not dominant pressure.
+- [ ] Treat 2000 bps as diagnostics only.
+- [ ] Exclude 5000 bps and farther from model influence.
+- [ ] Remove raw total-book quantity from model-eligible features.
+- [ ] Add best-level imbalance and microprice.
+- [ ] Add sequential OFI, depletion, replenishment, cancellation, and persistence.
+- [ ] Add test: a huge far-away bid cannot flip near-price imbalance.
+- [ ] Add test: one snapshot cannot claim persistent wall support/resistance.
+- [ ] Build restart-safe live depth collector with sequence-gap detection.
+- [ ] Use availability masks; never fabricate historical book snapshots.
 
-- [ ] Multi-scale returns: seconds to 60 minutes.
-- [ ] Momentum, acceleration, jump score, realized volatility, and volatility-of-volatility.
-- [ ] VWAP distance, range position, breakout strength, and trend consistency.
+### G2 acceptance
 
-### 3.2 Trade flow
-
-- [ ] Signed volume, trade imbalance, CVD, large-trade ratio, burst intensity, and price impact.
-- [ ] Absorption and exhaustion proxies with explicit formulas.
-
-### 3.3 Order-book microstructure
-
-- [ ] Multi-level imbalance.
-- [ ] Microprice, depth slope, convexity, spread, replenishment, cancellation intensity, and wall persistence.
-- [ ] Liquidity-vacuum and book-depletion scores.
-
-### 3.4 Derivatives and cross-market
-
-- [ ] OI level/change and price–OI states.
-- [ ] Funding z-score, basis, liquidations, and perpetual/spot ratios.
-- [ ] BTC/ETH lead-lag, rolling beta, correlation breakdown, breadth, and dispersion.
-
-### 3.5 Feature governance
-
-- [ ] Create feature registry with owner, formula, source, lookback, availability time, missing policy, scaling policy, and version.
-- [ ] Prove each feature uses only information available at prediction time.
-- [ ] Fit scaling on training windows only.
-- [ ] Add robust clipping without suppressing true market shocks.
-- [ ] Add missingness indicators and source-availability masks.
-
-### Completion gate G3
-
-- [ ] Leakage audit passes for every feature.
-- [ ] Offline and online feature calculations match within tolerance.
-- [ ] Feature replay is deterministic.
-- [ ] Redundant and unstable features are documented, not silently retained.
+- [ ] every model feature is explicitly registered.
+- [ ] no future information in feature calculation or learned scaling.
+- [ ] raw price precision preserved, but raw price is not an ungoverned model input.
+- [ ] far-book spoof-like quantities cannot dominate direction features.
 
 ---
 
-## 4. Baseline models
+## G3 — Model B target correctness
 
-- [ ] Build unconditional event-rate baseline.
-- [ ] Build multinomial logistic baseline.
-- [ ] Build gradient-boosted tree baseline.
-- [ ] Build separate `shock gate`, `direction`, and `time-to-barrier` baselines.
-- [ ] Add class weights or focal strategy only after documented imbalance analysis.
-- [ ] Calibrate probabilities using validation-only data.
-- [ ] Produce feature importance and stability reports.
+- [x] Define `UP_10`, `DOWN_10`, `NO_EVENT`, `AMBIGUOUS`, and `INCOMPLETE`.
+- [x] Create 15/30/45/60-minute anchors.
+- [ ] Use candle high/low for barrier touches instead of close-only points.
+- [ ] Mark same-candle dual hit as `AMBIGUOUS` unless finer ordering is available.
+- [ ] Require contiguous minute coverage across the full label horizon.
+- [ ] Use OHLC-aware maturation for the production prediction ledger.
+- [ ] Record exact label methodology version in every dataset/model/prediction.
+- [ ] Add replay and chunk-boundary invariance tests.
 
-### Completion gate G4
+### G3 acceptance
 
-- [ ] Baselines beat unconditional rates on untouched test periods.
-- [ ] Class-wise precision, recall, PR-AUC, Brier score, and calibration are reported.
-- [ ] Overall accuracy is never the primary success metric.
-- [ ] No model is promoted because of one favorable period.
-
----
-
-## 5. Temporal validation
-
-- [ ] Implement rolling walk-forward splits.
-- [ ] Implement purge and embargo for overlapping horizons.
-- [ ] Reserve final untouched test periods.
-- [ ] Add blocked bootstrap confidence intervals.
-- [ ] Evaluate by market regime, session, liquidity, volatility, and event cluster.
-- [ ] Compare against simple non-ML strategies and `NO_TRADE`.
-- [ ] Run ablations: no derivatives, no order book, no BTC/ETH, no news.
-
-### Completion gate G5
-
-- [ ] Every result can be reproduced from dataset hash + config + commit SHA.
-- [ ] Confidence intervals accompany headline metrics.
-- [ ] Performance survives multiple contiguous test windows.
-- [ ] Leakage and overlap audits pass independently.
+- [ ] no intraminute barrier touch is silently missed.
+- [ ] no gap-containing path becomes `NO_EVENT`.
+- [ ] repeated builds are deterministic and idempotent.
 
 ---
 
-## 6. Economic simulation
+## G4 — Model A target correctness
 
-- [ ] Model fees, spread, slippage, latency, partial fills, and liquidity limits.
-- [ ] Define entry, cancellation, invalidation, and expiry semantics.
-- [ ] Evaluate fixed-size and risk-capped sizing separately.
-- [ ] Measure expected value, profit factor, drawdown, tail loss, and false-alarm cost.
-- [ ] Stress-test worse fees, wider spread, delayed entry, and exchange outages.
-- [ ] Separate predictive quality from execution quality.
-
-### Completion gate G6
-
-- [ ] Positive expected value remains after conservative costs in multiple test windows.
-- [ ] Drawdown and tail-loss limits are documented and respected.
-- [ ] Results remain acceptable under adverse execution assumptions.
-- [ ] No simulated fill uses unavailable future liquidity.
+- [x] Use observed high for future maximum and observed low for future minimum.
+- [x] Create independent targets and model artifact path.
+- [x] Train horizon-specific quantile models.
+- [ ] Require and report contiguous path coverage explicitly.
+- [ ] Add time-to-high and time-to-low heads or document why deferred.
+- [ ] Add pinball loss, median excursion error, and quantile-crossing report.
+- [ ] Add independent Model A prediction maturation ledger.
 
 ---
 
-## 7. Continuous learning
+## G5 — Temporal validation
 
-- [ ] Build immutable prediction ledger.
-- [ ] Delay labels until horizon completion.
-- [ ] Prevent overlapping samples from inflating online metrics.
-- [ ] Add drift detection for features, labels, calibration, and performance.
-- [ ] Add bounded online calibration and ensemble-weight updates.
-- [ ] Add champion–challenger workflow.
-- [ ] Add checkpoints, rollback, quarantine, and recovery.
-- [ ] Require validation evidence before any challenger promotion.
+- [x] Implement purge/embargo helper primitives.
+- [ ] Integrate purge/embargo into Model A trainer.
+- [ ] Integrate purge/embargo into Model B train/calibration/test split.
+- [ ] Add rolling walk-forward folds.
+- [ ] Preserve a final untouched chronological test period.
+- [ ] Add independent event-cluster evaluation.
+- [ ] Add blocked-bootstrap confidence intervals.
+- [ ] Run ablations by feature family.
 
-### Completion gate G7
+### Model A metrics
 
-- [ ] Online updates cannot cause numerical divergence.
-- [ ] Rollback restores last-known-good state exactly.
-- [ ] Drift triggers review, not blind retraining.
-- [ ] Promotion and demotion decisions are logged and reproducible.
+- [x] empirical interval coverage gate scaffold.
+- [ ] coverage by horizon and regime.
+- [ ] pinball loss and quantile crossing.
+- [ ] comparison with simple historical-volatility/range baselines.
 
----
+### Model B metrics
 
-## 8. Product interface
-
-- [ ] Show `P(UP_10)`, `P(DOWN_10)`, `P(NO_EVENT)`, and uncertainty.
-- [ ] Show estimated time-to-barrier bands for 15/30/45/60 minutes.
-- [ ] Show model state, dataset freshness, sample size, calibration, and current regime.
-- [ ] Show supporting and opposing factors.
-- [ ] Show source health and missing data.
-- [ ] Show immutable forecast history and evaluated outcome.
-- [ ] Show explicit reason for `WAIT`.
-- [ ] Prevent UI from displaying implausible or quarantined predictions.
-
-### Completion gate G8
-
-- [ ] UI values reconcile with stored prediction records.
-- [ ] Stale or failed data visibly degrades to `WAIT`.
-- [ ] Browser tests cover reconnects, missing sources, corrupted state, and long sessions.
-- [ ] No visual wording implies certainty or guaranteed profit.
+- [x] class-wise precision/recall/F1 and Brier scores.
+- [x] high-confidence empirical precision gate scaffold.
+- [ ] PR-AUC by class.
+- [ ] expected calibration error and reliability curves.
+- [ ] false-alert rate for `UP_10` and `DOWN_10`.
+- [ ] comparison with unconditional and always-`NO_EVENT` baselines.
 
 ---
 
-## 9. Paper trading
+## G6 — Runtime lifecycle and model isolation
 
-- [ ] Run paper trading with frozen champion model.
-- [ ] Preserve all decisions before outcomes are known.
-- [ ] Compare live paper results with backtest expectations.
-- [ ] Review false positives and missed events individually.
-- [ ] Track performance by regime and source quality.
-- [ ] Set minimum duration and minimum independent event-cluster counts.
-
-### Completion gate G9
-
-- [ ] Minimum paper-trading duration completed.
-- [ ] Minimum independent-event sample achieved.
-- [ ] Live calibration and execution costs align with expectations.
-- [ ] No unresolved critical incidents.
-- [ ] Independent review approves or rejects further use.
+- [x] Persist Model A and Model B separately.
+- [x] Expose separate latest-result endpoints.
+- [x] Display separate dashboard sections.
+- [ ] Add lifecycle states: `BOOTSTRAP_HISTORY`, `BUILD_FEATURES`, `TRAIN_A`, `TRAIN_B`, `LIVE`, `ERROR`.
+- [ ] Expose separate progress and `WAIT` reasons per model.
+- [ ] Allow one model to be research-ready while the other remains `WAIT`.
+- [ ] Load valid champions immediately on restart while missing data backfills in background.
+- [ ] Prevent first bootstrap/training cycle from freezing progress visibility.
+- [ ] Add independent Model A and Model B report/ledger endpoints.
 
 ---
 
-## 10. Final independent review
+## G7 — Continuous learning
 
-- [ ] Re-run all tests from a clean environment.
-- [ ] Rebuild datasets and models from manifests.
-- [ ] Perform red-team leakage review.
-- [ ] Perform model-risk review.
-- [ ] Perform execution and operational-failure review.
-- [ ] Verify public/private repository and secret handling.
-- [ ] Publish limitations, known failure modes, and non-guarantee statement.
-
-### Completion gate G10
-
-- [ ] Clean-room reproduction passes.
-- [ ] All critical and high-severity findings are closed.
-- [ ] Final review report contains explicit `PASS`, `CONDITIONAL PASS`, or `FAIL`.
-- [ ] Until `PASS`, the production action remains `WAIT`.
+- [-] Append new minute data and mature delayed outcomes.
+- [-] Trigger governed retraining after new finalized rows.
+- [ ] Train challengers without interrupting champion inference.
+- [ ] Compare challengers on purged recent walk-forward windows.
+- [ ] Add drift checks for features, labels, calibration, and performance.
+- [ ] Add model quarantine and rollback.
+- [ ] Log promotion/rejection evidence.
+- [ ] Never promote merely because daily training completed.
 
 ---
 
-# Immediate execution order
+## G8 — Product interface
 
-1. [ ] Audit the current repository against this checklist.
-2. [ ] Add repository structure for collectors, schemas, research, models, tests, reports, and UI.
-3. [ ] Implement deterministic historical trade ingestion first.
-4. [ ] Complete label engine and golden fixtures.
-5. [ ] Implement feature registry and offline feature pipeline.
-6. [ ] Build temporal split, purge, and embargo utilities.
-7. [ ] Train and evaluate the first scientific baselines.
-8. [ ] Add derivatives and order-book pipelines.
-9. [ ] Add economic simulation.
-10. [ ] Add guarded continuous-learning workflow.
-11. [ ] Integrate validated outputs into the dashboard.
-12. [ ] Execute paper trading and independent final review.
+- [x] Separate Model A and Model B visually.
+- [x] Show independent outputs for 15/30/45/60 minutes.
+- [ ] Show bootstrap coverage and progress.
+- [ ] Show independent model state, version, training range, and sample count.
+- [ ] Show model-specific accuracy/coverage reports.
+- [ ] Show source health and missing feature families.
+- [ ] Show explicit human-readable `WAIT` reason.
+- [ ] Reconcile every visible value with a persisted record.
+- [ ] Add browser tests for long bootstrap, restart, missing API, stale data, and one-model-only readiness.
 
-# Self-review after every task
+---
 
-For each completed task, record:
+## G9 — Economic and operational evaluation
 
-- What was implemented?
-- What evidence proves it works?
-- What tests were added?
-- What could still be wrong?
-- Was any assumption introduced?
-- Could future information leak in?
-- Does failure produce `WAIT`?
-- Does the implementation preserve reproducibility?
-- Is another reviewer able to reproduce the result?
+- [ ] Separate statistical prediction quality from trade execution quality.
+- [ ] Simulate fees, spread, slippage, latency, partial fills, missed fills, and liquidity caps.
+- [ ] Use only liquidity available at decision time.
+- [ ] Run frozen-champion paper trading.
+- [ ] Track expected value, drawdown, tail loss, profit factor, and false-alert cost.
+- [ ] Complete independent leakage, model-risk, and operational review.
 
-No task is complete until these questions are answered in a linked review note.
+---
+
+# Immediate refactor order
+
+1. [-] Freeze documentation and publish repository audit.
+2. [-] Add explicit feature registry and order-book non-influence tests.
+3. [ ] Correct timestamp semantics and preserve historical trade-flow fields.
+4. [ ] Make Model B labels and ledger maturation OHLC/gap aware.
+5. [ ] Wire purge/embargo into both trainers.
+6. [ ] Add checkpointed bootstrap progress and lifecycle API.
+7. [ ] Separate model reports/ledgers/readiness fully.
+8. [ ] Add live order-book collection and availability masks.
+9. [ ] Add BTC/ETH and derivatives joins.
+10. [ ] Implement champion/challenger, drift, rollback, and clean one-year evidence run.
+
+# Review questions after every change
+
+- What real source supports this field?
+- Was it available at prediction time?
+- Could future information leak through scaling, imputation, labels, or selection?
+- Could a far-away or transient order distort the signal?
+- Does a missing source become an availability mask or `WAIT`, rather than fabricated data?
+- Are Model A and Model B still isolated?
+- Is the result reproducible from data ID, feature schema, config, commit, and model version?
+- Does failure remain visible and fail closed?
