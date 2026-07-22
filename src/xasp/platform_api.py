@@ -19,7 +19,7 @@ from .production_report import ProductionReportPaths
 
 
 def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> FastAPI:
-    app = FastAPI(title="XASP Real Data Platform", version="0.8.0")
+    app = FastAPI(title="XASP Real Data Platform", version="1.0.0")
     cycle_lock = Lock()
 
     @app.on_event("startup")
@@ -32,7 +32,7 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
                             await asyncio.to_thread(platform.run_cycle)
                         finally:
                             cycle_lock.release()
-                except Exception as exc:  # fail closed and expose the real error
+                except Exception as exc:
                     platform.status.state = "WAIT"
                     platform.status.reason = f"runtime_error:{type(exc).__name__}:{exc}"
                     platform._save_status()
@@ -46,6 +46,42 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
         if task is not None:
             task.cancel()
 
+    def model_catalog() -> dict[str, Any]:
+        shock_bundle = platform.envelope.bundle
+        touch_bundle = platform._bundle
+        return {
+            "collection": {
+                "symbol": platform.config.symbol,
+                "sampling": "1-minute observed candles",
+                "prediction_cadence_seconds": platform.config.prediction_cadence_ms // 1000,
+                "bootstrap_start_ms": platform.config.bootstrap_start_ms,
+                "retraining_policy": "daily after 5,760 newly finalized horizon rows",
+                "source": "Binance public observed market data",
+            },
+            "adaptive_shock": {
+                "display_name": "Adaptive Shock Magnitude Model",
+                "technical_name": "future-excursion quantile regression",
+                "purpose": "Estimate upside and downside excursion ranges for 15/30/45/60 minutes.",
+                "available": shock_bundle is not None,
+                "model_version": None if shock_bundle is None else shock_bundle.get("model_version"),
+                "trained_at_ms": None if shock_bundle is None else shock_bundle.get("trained_at_ms"),
+                "training_rows": None if shock_bundle is None else shock_bundle.get("training_final_rows"),
+                "gate": "85% empirical interval coverage on untouched temporal test data",
+                "endpoint": "/api/models/adaptive-shock/latest",
+            },
+            "first_touch_10": {
+                "display_name": "±10% First-Touch Model",
+                "technical_name": "calibrated multiclass first-touch classifier",
+                "purpose": "Estimate whether +10%, -10%, or neither is reached first within each horizon.",
+                "available": touch_bundle is not None,
+                "model_version": None if touch_bundle is None else touch_bundle.get("model_version"),
+                "trained_at_ms": None if touch_bundle is None else touch_bundle.get("trained_at_ms"),
+                "training_rows": None if touch_bundle is None else touch_bundle.get("training_final_rows"),
+                "gate": "85% empirical precision for high-confidence predictions on untouched temporal test data",
+                "endpoint": "/api/models/first-touch/latest",
+            },
+        }
+
     @app.get("/api/health")
     def health() -> dict[str, Any]:
         paths = platform.paths
@@ -58,9 +94,9 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
             "first_touch_model": paths.models.exists(),
             "first_touch_report": paths.reports.exists(),
             "prediction_ledger": paths.ledger.exists(),
-            "envelope_targets": platform.envelope.paths.targets.exists(),
-            "envelope_model": platform.envelope.paths.model.exists(),
-            "envelope_report": platform.envelope.paths.report.exists(),
+            "shock_targets": platform.envelope.paths.targets.exists(),
+            "shock_model": platform.envelope.paths.model.exists(),
+            "shock_report": platform.envelope.paths.report.exists(),
             "production_report": report_paths.latest_json.exists(),
             "production_report_history": report_paths.history_jsonl.exists(),
         }
@@ -70,7 +106,7 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
             "runtime_reason": platform.status.reason,
             "data_available": storage["prices"] and storage["features"],
             "first_touch_model_available": platform._bundle is not None,
-            "envelope_model_available": platform.envelope.bundle is not None,
+            "adaptive_shock_model_available": platform.envelope.bundle is not None,
             "storage": storage,
             "ready_for_research_predictions": (
                 platform._bundle is not None and platform.envelope.bundle is not None
@@ -81,15 +117,21 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
     @app.get("/api/status")
     def status() -> dict[str, Any]:
         payload = asdict(platform.status)
-        payload["envelope_model_available"] = platform.envelope.bundle is not None
+        payload["adaptive_shock_model_available"] = platform.envelope.bundle is not None
+        payload["first_touch_model_available"] = platform._bundle is not None
         payload["required_empirical_confidence"] = 0.85
         payload["confidence_note"] = (
             "85% is an empirical out-of-sample gate, not a guarantee of future correctness"
         )
         return payload
 
+    @app.get("/api/models")
+    def models() -> dict[str, Any]:
+        return model_catalog()
+
+    @app.get("/api/models/first-touch/latest")
     @app.get("/api/predictions/latest")
-    def latest_predictions() -> list[dict[str, Any]]:
+    def latest_first_touch() -> list[dict[str, Any]]:
         frame = platform.ledger.load()
         if frame.empty:
             return []
@@ -97,8 +139,9 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
         subset = frame[frame["anchor_timestamp_ms"] == latest_anchor]
         return subset.where(subset.notna(), None).to_dict(orient="records")
 
+    @app.get("/api/models/adaptive-shock/latest")
     @app.get("/api/envelope/latest")
-    def latest_envelope() -> list[dict[str, Any]]:
+    def latest_adaptive_shock() -> list[dict[str, Any]]:
         return platform.envelope.latest_predictions()
 
     @app.get("/api/ledger")
@@ -166,6 +209,7 @@ def main() -> None:
         RuntimeConfig(
             bootstrap_start_ms=args.bootstrap_start_ms,
             minimum_final_rows_per_horizon=args.minimum_final_rows,
+            retrain_after_new_final_rows=5_760,
         ),
     )
     uvicorn.run(create_app(platform), host=args.host, port=args.port)
