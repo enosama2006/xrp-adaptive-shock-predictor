@@ -133,8 +133,17 @@ A box appearing on screen is not evidence that a model is trained or working.
 
 ## Current state
 
-The repository contains a substantial scientific scaffold, minute OHLCV backfill, causal price features, independent first-touch and future-excursion targets, model persistence, delayed evaluation, production reports, and a dual-model dashboard.
+The repository now contains:
 
-It is **not yet a validated trading system**. Critical remaining work includes a visible bootstrap lifecycle, explicit feature registry, purged walk-forward integration in both model trainers, correct OHLC first-touch maturation, live near-price order-book collection, historical trade-flow enrichment, drift-governed champion/challenger promotion, and reproducible real-data benchmark evidence.
+- normalized completed-minute Binance OHLCV ingestion with historical quote-volume, trade-count, and taker-flow fields;
+- explicit fail-closed feature selection and causal trade-flow transformations;
+- OHLC-aware, gap-safe first-touch target creation and production maturation;
+- purged and embargoed chronological evaluation paths for both models;
+- near-price order-book features whose model pressure cannot be flipped by far-away walls;
+- independent model artifacts, APIs, dashboard sections, and evidence gates.
+
+These changes are part of an active refactor and still require a clean local/CI verification run and a reproducible real 365-day benchmark.
+
+The project is **not yet a validated trading system**. Critical remaining work includes checkpointed visible bootstrap progress, independent Model A production maturation/reporting, restart-safe live order-book collection with sequence validation, historical BTC/ETH and derivatives joins, drift-governed champion/challenger promotion and rollback, economic simulation, and paper-trading evidence.
 
 The official action remains `WAIT` until the relevant model passes all documented gates. No live order execution is implemented.
