@@ -16,7 +16,11 @@ import joblib
 import pandas as pd
 
 from .anchor_dataset import AnchorDatasetStore
-from .baseline import BaselineConfig, train_multinomial_baseline
+from .baseline import (
+    FIRST_TOUCH_GATE_VERSION,
+    BaselineConfig,
+    train_multinomial_baseline,
+)
 from .feature_registry import (
     SCHEMA_VERSION as FEATURE_SCHEMA_VERSION,
     audit_feature_columns,
@@ -108,8 +112,26 @@ class RealDataPlatform:
         self._active_collection_stage = "SYNC_MISSING_TAIL"
         if paths.models.exists():
             loaded = joblib.load(paths.models)
-            if isinstance(loaded, dict):
+            if (
+                isinstance(loaded, dict)
+                and loaded.get("gate_methodology_version") == FIRST_TOUCH_GATE_VERSION
+            ):
                 self._bundle = loaded
+                self._status.model_available = True
+                self._status.model_version = str(loaded.get("model_version"))
+                self._status.last_training_final_rows = int(
+                    loaded.get("training_final_rows", 0)
+                )
+            else:
+                # Earlier bundles could pass by predicting the dominant NO_EVENT
+                # class with high confidence. They are not valid champions under
+                # the directional-event gate and must be retrained.
+                self._status.model_available = False
+                self._status.model_version = None
+                self._status.last_training_final_rows = 0
+                self._status.state = "WAIT"
+                self._status.reason = "legacy_first_touch_gate_invalidated"
+                self._save_status()
 
     @staticmethod
     def _new_status() -> PlatformStatus:
@@ -214,8 +236,6 @@ class RealDataPlatform:
 
     @staticmethod
     def _feature_names(features: pd.DataFrame) -> list[str]:
-        """Select only explicitly registered features; unknown columns fail closed."""
-
         return select_model_feature_names(features)
 
     def sync_real_data(self, end_ms: int | None = None) -> None:
@@ -225,8 +245,12 @@ class RealDataPlatform:
             "BOOTSTRAP_HISTORY" if fresh_bootstrap else "SYNC_MISSING_TAIL"
         )
         self._status.cycle_started_at_ms = int(time.time() * 1000)
-        self._status.state = "WAIT"
-        self._status.reason = "data_collection_in_progress"
+        if self._bundle is None:
+            self._status.state = "WAIT"
+            self._status.reason = "data_collection_in_progress"
+        else:
+            self._status.state = "RESEARCH_ONLY"
+            self._status.reason = "data_sync_in_progress_existing_champion_loaded"
         self._set_lifecycle(
             self._active_collection_stage,
             progress=0.0,
@@ -258,8 +282,12 @@ class RealDataPlatform:
         self._status.data_end_ms = None if prices.empty else int(prices["timestamp_ms"].max())
         self._status.current_watermark_ms = self._status.data_end_ms
         self._status.updated_at_ms = cutoff
-        self._status.state = "WAIT"
-        self._status.reason = "real_data_synced_model_gate_pending"
+        if self._bundle is None:
+            self._status.state = "WAIT"
+            self._status.reason = "real_data_synced_directional_model_gate_pending"
+        else:
+            self._status.state = "RESEARCH_ONLY"
+            self._status.reason = "model_b_champion_loaded_data_synced"
         self._set_lifecycle(
             "DATA_READY",
             progress=1.0,
@@ -293,7 +321,7 @@ class RealDataPlatform:
         self._set_lifecycle(
             "TRAIN_MODEL_B",
             progress=0.0,
-            message="training_first_touch_challenger",
+            message="training_first_touch_directional_challenger",
         )
         self._save_feature_diagnostics(features)
         matrix = join_anchors_with_features(anchors, features)
@@ -329,14 +357,18 @@ class RealDataPlatform:
             json.dumps(reports, indent=2, sort_keys=True), encoding="utf-8"
         )
         if not all_ready or len(models) != len(HORIZONS):
-            self._status.state = "WAIT"
-            self._status.reason = "insufficient_real_training_evidence"
             self._status.last_training_final_rows = final_count
-            self._set_lifecycle(
-                "MODEL_B_WAIT",
-                progress=1.0,
-                message="model_b_evidence_gate_failed_or_insufficient",
-            )
+            if self._bundle is None:
+                self._status.model_available = False
+                self._status.model_version = None
+                self._status.state = "WAIT"
+                self._status.reason = "directional_event_evidence_gate_failed"
+                message = "model_b_directional_event_gate_failed_or_insufficient"
+            else:
+                self._status.state = "RESEARCH_ONLY"
+                self._status.reason = "challenger_rejected_existing_champion_retained"
+                message = "model_b_challenger_rejected_champion_retained"
+            self._set_lifecycle("MODEL_B_WAIT", progress=1.0, message=message)
             return False
 
         version = f"real-logistic-{int(time.time())}"
@@ -345,6 +377,7 @@ class RealDataPlatform:
             "trained_at_ms": int(time.time() * 1000),
             "feature_names": feature_names,
             "feature_schema_version": FEATURE_SCHEMA_VERSION,
+            "gate_methodology_version": FIRST_TOUCH_GATE_VERSION,
             "models": models,
             "reports": reports,
             "training_final_rows": final_count,
@@ -360,11 +393,11 @@ class RealDataPlatform:
         self._status.model_version = version
         self._status.last_training_final_rows = final_count
         self._status.state = "RESEARCH_ONLY"
-        self._status.reason = "real_model_fitted_not_yet_trading_promoted"
+        self._status.reason = "directional_event_gate_passed_not_trading_promoted"
         self._set_lifecycle(
             "MODEL_B_RESEARCH_READY",
             progress=1.0,
-            message="model_b_empirical_gate_passed",
+            message="model_b_directional_event_gate_passed",
         )
         return True
 
@@ -372,7 +405,7 @@ class RealDataPlatform:
         timestamp = int(time.time() * 1000) if now_ms is None else now_ms
         if self._bundle is None:
             self._status.state = "WAIT"
-            self._status.reason = "no_fitted_real_model"
+            self._status.reason = "no_directionally_valid_first_touch_model"
             self._save_status()
             return []
         if (
@@ -466,6 +499,11 @@ class RealDataPlatform:
         self.mature_predictions()
         completed_at = int(time.time() * 1000)
         self._status.last_successful_cycle_ms = completed_at
+        if self._bundle is not None:
+            self._status.state = "RESEARCH_ONLY"
+            self._status.reason = "model_b_research_monitoring_only"
+        elif self._status.reason == "real_data_synced_directional_model_gate_pending":
+            self._status.state = "WAIT"
         self._set_lifecycle(
             "LIVE_IDLE",
             progress=1.0,
