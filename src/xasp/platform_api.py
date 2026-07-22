@@ -179,7 +179,13 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
     @app.get("/api/models/first-touch/latest")
     @app.get("/api/predictions/latest")
     def latest_first_touch() -> list[dict[str, Any]]:
+        if platform._bundle is None:
+            return []
         frame = platform.ledger.load()
+        if frame.empty:
+            return []
+        active_version = str(platform._bundle["model_version"])
+        frame = frame[frame["model_version"] == active_version]
         if frame.empty:
             return []
         latest_anchor = int(frame["anchor_timestamp_ms"].max())
