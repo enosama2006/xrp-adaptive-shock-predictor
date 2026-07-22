@@ -207,10 +207,15 @@ class RealDataPlatform:
         all_ready = True
         for horizon in HORIZONS:
             subset = matrix[matrix["horizon_minutes"] == horizon].copy()
+            horizon_ms = horizon * 60_000
             model, report = train_multinomial_baseline(
                 subset,
                 feature_names,
-                BaselineConfig(minimum_rows=self.config.minimum_final_rows_per_horizon),
+                BaselineConfig(
+                    minimum_rows=self.config.minimum_final_rows_per_horizon,
+                    label_horizon_ms=horizon_ms,
+                    embargo_ms=horizon_ms,
+                ),
             )
             reports[str(horizon)] = asdict(report)
             if model is None:
