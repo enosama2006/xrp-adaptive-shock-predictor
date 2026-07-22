@@ -1,57 +1,140 @@
 # XRP Adaptive Shock Predictor (XASP)
 
-A research-first, continuously evaluated market-event predictor for XRP.
+XASP is a research-first, continuously evaluated XRP forecasting platform built around **two independent models** that share a governed real-data layer but do not share targets, model artifacts, prediction ledgers, quality gates, or user-facing outputs.
 
-## Research objective
+## The two models
 
-Estimate, at each prediction timestamp, the probability that XRP reaches **+10%** or **-10%** from the current reference price first within a rolling **15–60 minute** horizon.
+### Model A — XRP Adaptive Shock Predictor
 
-The product must output one of four states:
+**Technical form:** future-excursion / shock-magnitude regression.
 
-- `UP_10`
-- `DOWN_10`
-- `NO_EVENT`
-- `UNCERTAIN`
+For each prediction timestamp and each horizon (15, 30, 45, and 60 minutes), Model A estimates:
 
-This repository starts as a transparent browser prototype and evolves only through evidence-gated research phases.
+- the likely maximum upside excursion;
+- the likely maximum downside excursion;
+- uncertainty bands for both excursions;
+- the corresponding likely high and low prices;
+- whether evidence is strong enough to publish a research forecast or the model must remain `WAIT`.
 
-## Non-negotiable scientific rules
+Model A is not a renamed copy of Model B. It has its own targets, fitted models, model version, report, prediction store, and acceptance criteria.
+
+### Model B — ±10% First-Touch Predictor
+
+**Technical form:** calibrated multiclass first-touch classification.
+
+At every eligible timestamp, Model B estimates whether XRP will:
+
+- touch `+10%` first (`UP_10`);
+- touch `-10%` first (`DOWN_10`);
+- touch neither barrier within the selected horizon (`NO_EVENT`).
+
+When both barriers occur inside the same minute candle and their true order cannot be proven, the label is `AMBIGUOUS` and is excluded from supervised training and production scoring. Missing or incomplete future paths are also excluded.
+
+## Shared data platform, isolated learning paths
+
+Both models may consume the same **point-in-time feature row**, but each model owns:
+
+- a separate target table;
+- a separate training routine;
+- a separate model bundle and version;
+- a separate validation report;
+- a separate prediction history;
+- a separate readiness state and `WAIT` reason.
+
+One model may become research-ready while the other remains `WAIT`.
+
+## Startup and continuous data lifecycle
+
+### First startup
+
+1. Backfill at least **365 days** of observed Binance `XRPUSDT` one-minute candles.
+2. Store completed candles locally and atomically.
+3. Build causal features using only information available at each anchor timestamp.
+4. Build the independent targets for Model A and Model B.
+5. Run chronological training, calibration, purge/embargo checks, and untouched-test evaluation.
+6. Publish only the model that passes its own evidence gate.
+
+A fresh installation must not fabricate an immediate prediction while the historical backfill or first training run is incomplete.
+
+### Later startups
+
+- load the last accepted model bundles immediately;
+- display the latest valid research predictions if they are still fresh;
+- backfill only missing candles since the last local watermark;
+- append each new completed minute candle;
+- mature delayed outcomes at 15/30/45/60 minutes;
+- create a new prediction every completed minute when the corresponding model is available;
+- train a challenger after a governed amount of new data, normally once per day;
+- replace a champion only after the challenger passes the predefined temporal gates.
+
+## Feature engineering contract
+
+Raw exchange prices are preserved at full precision for auditability. Models should learn primarily from causal, scale-stable transformations:
+
+- percentage returns and log returns;
+- realized volatility, jump intensity, momentum, and acceleration;
+- rolling range position, drawdown, distance from highs/lows, and breakout strength;
+- rolling z-scores fitted from past values only;
+- robust normalization using median and IQR for heavy-tailed features;
+- `log1p` compression for volume, depth, liquidation, and other highly skewed non-negative variables;
+- missingness indicators and source-availability masks;
+- BTC/ETH context, derivatives, trade flow, and microstructure only when their timestamps prove they were available at the prediction time.
+
+Any learned imputer, scaler, calibrator, or quantile transform must be fitted on the training partition only.
+
+## Order-book and supply/demand rules
+
+Order-book features must represent **executable liquidity near the current tradable price**, not total visible quantity across an arbitrary depth snapshot.
+
+Primary bands:
+
+- 0.05%, 0.10%, 0.25%, 0.50%, 1%, and 2% from the mid-price;
+- 5% as medium-distance context;
+- 10% as target-corridor context;
+- 20% as diagnostic context only;
+- 50% and farther must not influence model pressure or direction features.
+
+Required protections:
+
+- distance-weighted depth so influence decays rapidly with price distance;
+- near-band bid/ask imbalance and spread;
+- microprice and best-level pressure;
+- order-flow imbalance, depletion, replenishment, and cancellation/persistence measures when sequential book data exists;
+- large far-away walls cannot flip the near-price pressure signal;
+- a single snapshot cannot prove wall persistence and must not label a wall as durable;
+- historical order-book values must never be invented when the exchange API cannot provide them.
+
+## Scientific validation rules
 
 1. No random train/test split for time series.
-2. No future leakage in features, scaling, labels, or calibration.
-3. Labels use first-touch barrier outcomes, not only horizon-close returns.
-4. Overlapping prediction windows require purging and embargo in evaluation.
-5. Accuracy alone is forbidden as a success metric because `NO_EVENT` dominates.
-6. Signals remain `WAIT` until out-of-sample and paper-trading gates pass.
-7. Online updates use delayed labels, bounded updates, drift checks, rollback, and champion–challenger promotion.
-8. Every displayed probability must expose model state, data freshness, sample size, uncertainty, and evaluation status.
-9. No live order execution is implemented in this phase.
+2. No future leakage in features, labels, scaling, calibration, or model selection.
+3. Overlapping horizons require purge and embargo.
+4. A final chronological test period remains untouched until model selection is complete.
+5. `NO_EVENT` class dominance means overall accuracy is not an acceptance metric.
+6. Model B reports class-wise precision/recall, PR-AUC, Brier score, calibration, and high-confidence empirical precision.
+7. Model A reports interval coverage, quantile ordering, excursion error, and stability by horizon.
+8. Metrics are reported by horizon, market regime, liquidity state, and independent event cluster.
+9. Every forecast is written before its outcome is known and evaluated only after maturity.
+10. Statistical quality is separate from profitability after fees, spread, slippage, latency, and fills.
 
-## Initial architecture
+## User-interface contract
 
-```text
-Market streams
-  -> timestamp validation and synchronization
-  -> rolling feature engine
-  -> barrier-event registry
-  -> baseline probabilistic model
-  -> probability calibration
-  -> execution-feasibility gate
-  -> prediction ledger
-  -> delayed outcome evaluation
-  -> guarded online adaptation
-```
+The dashboard must visibly separate Model A and Model B. Each section shows only that model's:
 
-## Phase 0 deliverables
+- status and explicit `WAIT` reason;
+- model version and training time;
+- data range and sample size;
+- latest outputs for 15/30/45/60 minutes;
+- uncertainty and quality gate;
+- production accuracy/coverage report;
+- prediction history and matured outcomes.
 
-- Arabic RTL research dashboard.
-- Live public Binance spot streams for XRP and BTC.
-- Transparent microstructure and multi-horizon features.
-- +10% / -10% barrier monitoring over 15, 30, 45, and 60 minutes.
-- Prediction ledger with delayed evaluation.
-- Strict `WAIT` policy until sufficient evidence exists.
-- Research governance and data contracts.
+A box appearing on screen is not evidence that a model is trained or working.
 
-## Status
+## Current state
 
-**Phase 0 — scientific scaffold.** The repository does not claim a validated trading edge and must not be used for automated execution.
+The repository contains a substantial scientific scaffold, minute OHLCV backfill, causal price features, independent first-touch and future-excursion targets, model persistence, delayed evaluation, production reports, and a dual-model dashboard.
+
+It is **not yet a validated trading system**. Critical remaining work includes a visible bootstrap lifecycle, explicit feature registry, purged walk-forward integration in both model trainers, correct OHLC first-touch maturation, live near-price order-book collection, historical trade-flow enrichment, drift-governed champion/challenger promotion, and reproducible real-data benchmark evidence.
+
+The official action remains `WAIT` until the relevant model passes all documented gates. No live order execution is implemented.
