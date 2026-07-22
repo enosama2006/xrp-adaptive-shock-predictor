@@ -23,6 +23,7 @@ from .feature_registry import (
     select_model_feature_names,
 )
 from .features import build_feature_diagnostics, build_price_features, join_anchors_with_features
+from .labeling import CandlePoint
 from .pipeline import IncrementalResearchPipeline, PipelineConfig, PipelinePaths
 from .prediction_ledger import PredictionLedger, PredictionRecord
 
@@ -118,7 +119,7 @@ class RealDataPlatform:
 
     def _load_prices(self) -> pd.DataFrame:
         frame = pd.read_parquet(self.paths.prices)
-        required = {"timestamp_ms", "price"}
+        required = {"timestamp_ms", "price", "open", "high", "low"}
         missing = required - set(frame.columns)
         if missing:
             raise ValueError(f"price dataset missing columns: {sorted(missing)}")
@@ -317,13 +318,17 @@ class RealDataPlatform:
     def mature_predictions(self, now_ms: int | None = None) -> None:
         timestamp = int(time.time() * 1000) if now_ms is None else now_ms
         prices = self._load_prices()
-        from .labeling import PricePoint
-
-        points = [
-            PricePoint(int(row.timestamp_ms), float(row.price))
+        candles = [
+            CandlePoint(
+                timestamp_ms=int(row.timestamp_ms),
+                open=float(row.open),
+                high=float(row.high),
+                low=float(row.low),
+                close=float(row.price),
+            )
             for row in prices.itertuples(index=False)
         ]
-        self.ledger.mature(points, timestamp)
+        self.ledger.mature_candles(candles, timestamp)
 
     def run_cycle(self, force_train: bool = False) -> dict[str, Any]:
         self.sync_real_data()
