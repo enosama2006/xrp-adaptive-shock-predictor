@@ -25,6 +25,15 @@ if errorlevel 1 goto :error
 "%PIP%" install -e ".[dev]"
 if errorlevel 1 goto :error
 
+echo.
+echo [XASP] Running integration checks before server startup...
+"%PYTHON%" -m compileall -q src
+if errorlevel 1 goto :verification_error
+"%PYTHON%" -m pytest -q
+if errorlevel 1 goto :verification_error
+"%PYTHON%" -c "from xasp.platform_api import create_app; from xasp.platform_runtime_v2 import RealDataPlatformV2; print('[XASP] Import smoke check passed')"
+if errorlevel 1 goto :verification_error
+
 REM Default bootstrap is exactly 365 days before launch, calculated in UTC.
 REM A manually supplied XASP_BOOTSTRAP_START_MS still takes precedence.
 if not defined XASP_BOOTSTRAP_START_MS (
@@ -45,6 +54,13 @@ start "" "http://%HOST%:%PORT%"
 if errorlevel 1 goto :error
 
 goto :eof
+
+:verification_error
+echo.
+echo [XASP] Verification failed. The server was NOT started.
+echo [XASP] Review the failing test or import error above.
+pause
+exit /b 2
 
 :error
 echo.
