@@ -23,12 +23,14 @@ def test_platform_wires_routes_without_network_or_market_fabrication(tmp_path: P
     route_paths = {route.path for route in app.routes}
 
     assert platform.status.state == "WAIT"
-    assert platform.status.reason == "not_started"
+    assert platform.status.reason == "both_model_evidence_gates_pending"
     assert "/api/status" in route_paths
     assert "/api/health" in route_paths
     assert "/api/models" in route_paths
     assert "/api/models/first-touch/latest" in route_paths
     assert "/api/models/adaptive-shock/latest" in route_paths
+    assert "/api/reports/training/first-touch" in route_paths
+    assert "/api/reports/training/adaptive-shock" in route_paths
     assert "/api/predictions/latest" in route_paths
     assert "/api/envelope/latest" in route_paths
     assert "/api/ledger" in route_paths
