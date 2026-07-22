@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from xasp.anchor_dataset import (
     AnchorDatasetConfig,
     AnchorDatasetStore,
@@ -37,7 +39,7 @@ def test_intraminute_upper_touch_is_not_missed_when_close_reverts() -> None:
 
     assert result.label == BarrierLabel.UP_10
     assert result.touch_timestamp_ms == 10 * MINUTE
-    assert result.touch_price == 110.0
+    assert result.touch_price == pytest.approx(110.0)
 
 
 def test_same_candle_dual_touch_is_ambiguous() -> None:
