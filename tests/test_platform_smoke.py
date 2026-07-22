@@ -24,6 +24,11 @@ def test_platform_wires_routes_without_network_or_market_fabrication(tmp_path: P
 
     assert platform.status.state == "WAIT"
     assert platform.status.reason == "both_model_evidence_gates_pending"
+    assert platform.envelope.paths.targets == tmp_path / "data" / "future_envelopes.parquet"
+    assert platform.envelope.paths.model == tmp_path / "models" / "envelope_champion.joblib"
+    assert platform.envelope.paths.report == tmp_path / "reports" / "envelope_training.json"
+    assert platform.envelope.paths.predictions == tmp_path / "data" / "envelope_predictions.parquet"
+    assert platform.envelope.bundle is None
     assert "/api/status" in route_paths
     assert "/api/health" in route_paths
     assert "/api/models" in route_paths
