@@ -10,7 +10,15 @@ from typing import Iterable
 
 import pandas as pd
 
-from .labeling import BarrierConfig, PricePoint, label_first_touch
+from .labeling import (
+    BarrierConfig,
+    BarrierLabel,
+    CandlePoint,
+    FirstTouchResult,
+    PricePoint,
+    label_first_touch,
+    label_first_touch_candles,
+)
 
 LEDGER_COLUMNS = [
     "prediction_id",
@@ -139,7 +147,26 @@ class PredictionLedger:
         self._save(combined)
         return self.load()
 
+    @staticmethod
+    def _write_result(
+        frame: pd.DataFrame,
+        index: int,
+        result: FirstTouchResult,
+        resolved_at_ms: int,
+    ) -> None:
+        frame.at[index, "actual_label"] = result.label.value
+        frame.at[index, "touch_timestamp_ms"] = result.touch_timestamp_ms
+        frame.at[index, "touch_price"] = result.touch_price
+        frame.at[index, "resolved_at_ms"] = resolved_at_ms
+        frame.at[index, "status"] = (
+            "FINAL"
+            if result.label not in {BarrierLabel.INCOMPLETE, BarrierLabel.AMBIGUOUS}
+            else "EXCLUDED"
+        )
+
     def mature(self, prices: Iterable[PricePoint], resolved_at_ms: int) -> pd.DataFrame:
+        """Compatibility maturation for actual ordered point observations."""
+
         points = sorted(prices, key=lambda point: point.timestamp_ms)
         frame = self.load()
         if frame.empty:
@@ -156,12 +183,36 @@ class PredictionLedger:
                 points,
                 BarrierConfig(horizon_ms=horizon_ms),
             )
-            frame.at[index, "actual_label"] = result.label.value
-            frame.at[index, "touch_timestamp_ms"] = result.touch_timestamp_ms
-            frame.at[index, "touch_price"] = result.touch_price
-            frame.at[index, "resolved_at_ms"] = resolved_at_ms
-            frame.at[index, "status"] = (
-                "FINAL" if result.label.value not in {"INCOMPLETE", "AMBIGUOUS"} else "EXCLUDED"
+            self._write_result(frame, int(index), result, resolved_at_ms)
+        self._save(frame)
+        return self.load()
+
+    def mature_candles(
+        self,
+        candles: Iterable[CandlePoint],
+        resolved_at_ms: int,
+        *,
+        cadence_ms: int = 60_000,
+    ) -> pd.DataFrame:
+        """Mature predictions using gap-safe OHLC barrier detection."""
+
+        ordered = sorted(candles, key=lambda candle: candle.timestamp_ms)
+        frame = self.load()
+        if frame.empty:
+            return frame
+        eligible = (frame["status"] == "PENDING") & (frame["horizon_end_ms"] <= resolved_at_ms)
+        for index in frame.index[eligible]:
+            anchor = PricePoint(
+                timestamp_ms=int(frame.at[index, "anchor_timestamp_ms"]),
+                price=float(frame.at[index, "anchor_price"]),
             )
+            horizon_ms = int(frame.at[index, "horizon_minutes"]) * 60_000
+            result = label_first_touch_candles(
+                anchor,
+                ordered,
+                BarrierConfig(horizon_ms=horizon_ms),
+                cadence_ms=cadence_ms,
+            )
+            self._write_result(frame, int(index), result, resolved_at_ms)
         self._save(frame)
         return self.load()
