@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import asdict
 import json
 import time
 from pathlib import Path
@@ -32,7 +33,7 @@ def main() -> None:
         ),
     )
     result = pipeline.run(end_ms)
-    print(json.dumps(result.__dict__, indent=2, sort_keys=True))
+    print(json.dumps(asdict(result), indent=2, sort_keys=True))
 
 
 if __name__ == "__main__":
