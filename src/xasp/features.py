@@ -55,10 +55,17 @@ def build_price_features(
         if window <= 0:
             raise ValueError("feature windows must be positive")
         frame[f"return_{window}m"] = price.pct_change(window)
+
+        # A one-minute rolling window can only contain one observed return, so
+        # min_periods must never exceed the configured window. With ddof=0 a
+        # single observed return has zero within-window dispersion; the first
+        # row remains NaN because no prior return exists.
+        volatility_min_periods = min(window, 2)
         frame[f"volatility_{window}m"] = one_step_return.rolling(
             window=window,
-            min_periods=max(2, min(window, 3)),
+            min_periods=volatility_min_periods,
         ).std(ddof=0)
+
         rolling_high = price.rolling(window=window, min_periods=1).max()
         rolling_low = price.rolling(window=window, min_periods=1).min()
         spread = (rolling_high - rolling_low).replace(0, np.nan)
