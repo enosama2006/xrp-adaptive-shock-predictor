@@ -12,7 +12,11 @@ import pandas as pd
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import brier_score_loss, precision_recall_fscore_support
+from sklearn.metrics import (
+    average_precision_score,
+    brier_score_loss,
+    precision_recall_fscore_support,
+)
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
@@ -34,6 +38,9 @@ class BaselineConfig:
     prediction_confidence_threshold: float = 0.85
     required_empirical_precision: float = 0.85
     minimum_high_confidence_predictions: int = 50
+    label_horizon_ms: int = 60_000
+    embargo_ms: int | None = None
+    calibration_bins: int = 10
 
     def __post_init__(self) -> None:
         if not 0.5 <= self.train_fraction < 0.9:
@@ -50,6 +57,12 @@ class BaselineConfig:
             raise ValueError("required_empirical_precision must be in [0.5, 1]")
         if self.minimum_high_confidence_predictions < 1:
             raise ValueError("minimum_high_confidence_predictions must be positive")
+        if self.label_horizon_ms <= 0:
+            raise ValueError("label_horizon_ms must be positive")
+        if self.embargo_ms is not None and self.embargo_ms < 0:
+            raise ValueError("embargo_ms must be non-negative")
+        if self.calibration_bins < 2:
+            raise ValueError("calibration_bins must be at least two")
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,12 +82,61 @@ class BaselineReport:
         path.write_text(json.dumps(asdict(self), indent=2, sort_keys=True), encoding="utf-8")
 
 
-def _temporal_split(frame: pd.DataFrame, config: BaselineConfig) -> tuple[pd.DataFrame, ...]:
-    ordered = frame.sort_values("anchor_timestamp_ms", ignore_index=True)
+def _purged_temporal_split(
+    frame: pd.DataFrame,
+    config: BaselineConfig,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, int]]:
+    """Create chronological train/calibration/test partitions with boundary purge.
+
+    Rows whose target horizon crosses into the next partition are removed. An
+    embargo equal to the target horizon by default is applied after each boundary
+    before the next partition begins. The final test remains chronologically last.
+    """
+
+    ordered = frame.sort_values("anchor_timestamp_ms", ignore_index=True).copy()
+    if "horizon_end_ms" not in ordered.columns:
+        ordered["horizon_end_ms"] = (
+            ordered["anchor_timestamp_ms"].astype("int64") + config.label_horizon_ms
+        )
+
     n_rows = len(ordered)
-    train_end = int(n_rows * config.train_fraction)
-    calibration_end = int(n_rows * (config.train_fraction + config.calibration_fraction))
-    return ordered.iloc[:train_end], ordered.iloc[train_end:calibration_end], ordered.iloc[calibration_end:]
+    train_cut_index = int(n_rows * config.train_fraction)
+    calibration_cut_index = int(
+        n_rows * (config.train_fraction + config.calibration_fraction)
+    )
+    if train_cut_index <= 0 or calibration_cut_index <= train_cut_index or calibration_cut_index >= n_rows:
+        raise ValueError("temporal split produced an empty raw partition")
+
+    calibration_boundary = int(ordered.iloc[train_cut_index]["anchor_timestamp_ms"])
+    test_boundary = int(ordered.iloc[calibration_cut_index]["anchor_timestamp_ms"])
+    embargo_ms = config.label_horizon_ms if config.embargo_ms is None else config.embargo_ms
+
+    raw_train = ordered.iloc[:train_cut_index]
+    raw_calibration = ordered.iloc[train_cut_index:calibration_cut_index]
+    raw_test = ordered.iloc[calibration_cut_index:]
+
+    train = raw_train[raw_train["horizon_end_ms"] <= calibration_boundary].copy()
+    calibration = raw_calibration[
+        (raw_calibration["anchor_timestamp_ms"] >= calibration_boundary + embargo_ms)
+        & (raw_calibration["horizon_end_ms"] <= test_boundary)
+    ].copy()
+    test = raw_test[
+        raw_test["anchor_timestamp_ms"] >= test_boundary + embargo_ms
+    ].copy()
+
+    audit = {
+        "raw_train_rows": int(len(raw_train)),
+        "raw_calibration_rows": int(len(raw_calibration)),
+        "raw_test_rows": int(len(raw_test)),
+        "purged_train_rows": int(len(raw_train) - len(train)),
+        "purged_or_embargoed_calibration_rows": int(len(raw_calibration) - len(calibration)),
+        "embargoed_test_rows": int(len(raw_test) - len(test)),
+        "calibration_boundary_ms": calibration_boundary,
+        "test_boundary_ms": test_boundary,
+        "label_horizon_ms": config.label_horizon_ms,
+        "embargo_ms": embargo_ms,
+    }
+    return train, calibration, test, audit
 
 
 def _build_pipeline(config: BaselineConfig) -> Pipeline:
@@ -99,13 +161,7 @@ def _calibrate_prefit_model(
     calibration_features: pd.DataFrame,
     calibration_labels: pd.Series,
 ) -> CalibratedClassifierCV:
-    """Calibrate an already-fitted estimator across supported sklearn releases.
-
-    scikit-learn 1.6 introduced ``FrozenEstimator`` for pre-fitted estimators and
-    newer releases reject the legacy ``cv='prefit'`` value. Older supported
-    releases still require the legacy form, so the runtime selects the API that
-    is actually available instead of pinning behavior to one sklearn version.
-    """
+    """Calibrate an already-fitted estimator across supported sklearn releases."""
 
     if FrozenEstimator is not None:
         calibrated = CalibratedClassifierCV(
@@ -122,11 +178,36 @@ def _calibrate_prefit_model(
     return calibrated
 
 
+def _expected_calibration_error(
+    probabilities: np.ndarray,
+    predictions: np.ndarray,
+    actual: np.ndarray,
+    bins: int,
+) -> float:
+    confidence = probabilities.max(axis=1)
+    correctness = (predictions == actual).astype(float)
+    edges = np.linspace(0.0, 1.0, bins + 1)
+    ece = 0.0
+    for index in range(bins):
+        lower = edges[index]
+        upper = edges[index + 1]
+        mask = (confidence >= lower) & (
+            confidence <= upper if index == bins - 1 else confidence < upper
+        )
+        count = int(mask.sum())
+        if count == 0:
+            continue
+        weight = count / len(confidence)
+        ece += weight * abs(float(correctness[mask].mean()) - float(confidence[mask].mean()))
+    return float(ece)
+
+
 def _wait_report(
     reason: str,
     usable: pd.DataFrame,
     feature_names: list[str],
     counts: dict[str, int],
+    metrics: dict[str, Any] | None = None,
 ) -> BaselineReport:
     return BaselineReport(
         "WAIT",
@@ -137,7 +218,7 @@ def _wait_report(
         0,
         tuple(feature_names),
         counts,
-        {},
+        metrics or {},
     )
 
 
@@ -146,13 +227,7 @@ def train_multinomial_baseline(
     feature_names: list[str],
     config: BaselineConfig = BaselineConfig(),
 ) -> tuple[Pipeline | CalibratedClassifierCV | None, BaselineReport]:
-    """Train on observed FINAL labels and fail closed unless the 85% gate passes.
-
-    The gate means that, on an untouched temporal test period, predictions whose
-    reported maximum probability is at least 85% must achieve at least 85%
-    empirical precision with sufficient support. It is not a guarantee about
-    future observations.
-    """
+    """Train on observed FINAL labels and fail closed unless the gate passes."""
 
     required = {"anchor_timestamp_ms", "label", "status", *feature_names}
     missing = required - set(dataset.columns)
@@ -167,9 +242,24 @@ def train_multinomial_baseline(
     if sum(value > 0 for value in counts.values()) < 2:
         return None, _wait_report("insufficient_label_diversity", usable, feature_names, counts)
 
-    train, calibration, test = _temporal_split(usable, config)
+    train, calibration, test, split_audit = _purged_temporal_split(usable, config)
     if train.empty or calibration.empty or test.empty:
-        raise ValueError("temporal split produced an empty partition")
+        return None, _wait_report(
+            "insufficient_rows_after_purge_and_embargo",
+            usable,
+            feature_names,
+            counts,
+            {"split_audit": split_audit},
+        )
+    if train["label"].nunique() < 2:
+        return None, _wait_report(
+            "insufficient_train_label_diversity_after_purge",
+            usable,
+            feature_names,
+            counts,
+            {"split_audit": split_audit},
+        )
+
     model = _build_pipeline(config)
     model.fit(train[feature_names], train["label"])
     calibrated: Pipeline | CalibratedClassifierCV = model
@@ -186,26 +276,34 @@ def train_multinomial_baseline(
     precision, recall, f1, support = precision_recall_fscore_support(
         test["label"], predictions, labels=list(ALLOWED_LABELS), zero_division=0
     )
-    per_class: dict[str, dict[str, float | int]] = {}
+    per_class: dict[str, dict[str, float | int | None]] = {}
     for index, label in enumerate(ALLOWED_LABELS):
-        metrics: dict[str, float | int] = {
+        metrics: dict[str, float | int | None] = {
             "precision": float(precision[index]),
             "recall": float(recall[index]),
             "f1": float(f1[index]),
             "support": int(support[index]),
+            "pr_auc": None,
+            "brier": None,
         }
         if label in classes:
             class_index = classes.index(label)
+            actual_binary = (test["label"] == label).astype(int)
             metrics["brier"] = float(
-                brier_score_loss((test["label"] == label).astype(int), probabilities[:, class_index])
+                brier_score_loss(actual_binary, probabilities[:, class_index])
             )
+            if actual_binary.nunique() >= 2:
+                metrics["pr_auc"] = float(
+                    average_precision_score(actual_binary, probabilities[:, class_index])
+                )
         per_class[label] = metrics
 
     maximum_probability = probabilities.max(axis=1)
     high_confidence = maximum_probability >= config.prediction_confidence_threshold
     high_count = int(high_confidence.sum())
+    test_actual = test["label"].to_numpy()
     high_precision = (
-        float(np.mean(predictions[high_confidence] == test["label"].to_numpy()[high_confidence]))
+        float(np.mean(predictions[high_confidence] == test_actual[high_confidence]))
         if high_count
         else 0.0
     )
@@ -213,6 +311,13 @@ def train_multinomial_baseline(
         high_count >= config.minimum_high_confidence_predictions
         and high_precision >= config.required_empirical_precision
     )
+    ece = _expected_calibration_error(
+        probabilities,
+        np.asarray(predictions),
+        test_actual,
+        config.calibration_bins,
+    )
+
     report = BaselineReport(
         "RESEARCH_ONLY" if gate_passed else "WAIT",
         "empirical_85pct_gate_passed_not_trading_promoted"
@@ -225,7 +330,9 @@ def train_multinomial_baseline(
         tuple(feature_names),
         counts,
         {
+            "split_audit": split_audit,
             "per_class": per_class,
+            "expected_calibration_error": ece,
             "high_confidence_threshold": config.prediction_confidence_threshold,
             "high_confidence_predictions": high_count,
             "high_confidence_empirical_precision": high_precision,
