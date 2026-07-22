@@ -1,0 +1,98 @@
+"""XASP runtime v2: two parallel models trained only from observed data."""
+
+from __future__ import annotations
+
+from dataclasses import asdict
+import time
+from typing import Any
+
+import pandas as pd
+
+from .anchor_dataset import AnchorDatasetStore
+from .envelope_engine import EnvelopeEngine
+from .platform_runtime import PlatformStatus, RealDataPlatform, RuntimeConfig, RuntimePaths
+
+
+class RealDataPlatformV2(RealDataPlatform):
+    """Extend the first-touch runtime with a parallel future-envelope learner.
+
+    Both models share the same causal feature snapshot.  The envelope learner is
+    trained against the observed intrahorizon high and low, not merely the price
+    at 15/30/45/60 minutes.  No synthetic market rows are introduced.
+    """
+
+    def __init__(self, paths: RuntimePaths, config: RuntimeConfig) -> None:
+        super().__init__(paths, config)
+        self.envelope = EnvelopeEngine()
+        self._latest_envelope_predictions: list[dict[str, Any]] = []
+
+    def sync_real_data(self, end_ms: int | None = None) -> None:
+        super().sync_real_data(end_ms)
+        prices = self._load_prices()
+        self.envelope.rebuild_targets(prices)
+
+    def train_if_due(self, force: bool = False) -> bool:
+        first_touch_trained = super().train_if_due(force=force)
+        anchors = AnchorDatasetStore(self.paths.anchors).load()
+        final_count = int((anchors["status"] == "FINAL").sum()) if not anchors.empty else 0
+        due = force or (
+            final_count >= self.status.last_training_final_rows
+            and final_count >= self.config.minimum_final_rows_per_horizon * 4
+        )
+        if not due:
+            return first_touch_trained
+
+        prices = self._load_prices()
+        features = pd.read_parquet(self.paths.features)
+        targets = self.envelope.rebuild_targets(prices)
+        feature_names = self._feature_names(features)
+        envelope_trained = self.envelope.train(
+            targets,
+            features,
+            feature_names,
+            self.config.minimum_final_rows_per_horizon,
+        )
+        if not envelope_trained:
+            self.status.state = "WAIT"
+            self.status.reason = "parallel_envelope_empirical_coverage_below_85_or_insufficient_rows"
+            self._save_status()
+        return first_touch_trained or envelope_trained
+
+    def predict_latest(self, now_ms: int | None = None) -> list[dict[str, Any]]:
+        first_touch = super().predict_latest(now_ms)
+        timestamp = int(time.time() * 1000) if now_ms is None else now_ms
+        if self.envelope.bundle is None:
+            self._latest_envelope_predictions = []
+            return first_touch
+        features = pd.read_parquet(self.paths.features)
+        if features.empty:
+            self._latest_envelope_predictions = []
+            return first_touch
+        latest = features.sort_values("timestamp_ms").iloc[-1]
+        anchor_ms = int(latest["timestamp_ms"])
+        anchor_price = float(latest["price"])
+        self._latest_envelope_predictions = self.envelope.predict(latest, anchor_price, anchor_ms)
+        self.status.updated_at_ms = timestamp
+        self._save_status()
+        return first_touch
+
+    def run_cycle(self, force_train: bool = False) -> dict[str, Any]:
+        self.sync_real_data()
+        trained = self.train_if_due(force=force_train)
+        first_touch_predictions = self.predict_latest()
+        self.mature_predictions()
+        return {
+            "status": asdict(self.status),
+            "trained": trained,
+            "first_touch_predictions_created": len(first_touch_predictions),
+            "envelope_predictions_created": len(self._latest_envelope_predictions),
+            "envelope_model_available": self.envelope.bundle is not None,
+        }
+
+
+__all__ = [
+    "PlatformStatus",
+    "RealDataPlatformV2",
+    "RuntimeConfig",
+    "RuntimePaths",
+]
