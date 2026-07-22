@@ -1,4 +1,4 @@
-"""Restart-safe end-to-end minute pipeline for raw prices and first-touch anchors."""
+"""Restart-safe end-to-end minute pipeline for observed Binance candles and anchors."""
 
 from __future__ import annotations
 
@@ -14,7 +14,14 @@ from .dataset_state import DatasetStateStore
 from .labeling import PricePoint
 
 MINUTE_MS = 60_000
-PRICE_COLUMNS = ["timestamp_ms", "price", "open", "high", "low", "volume"]
+CORE_PRICE_COLUMNS = ["timestamp_ms", "price", "open", "high", "low", "volume"]
+OPTIONAL_PRICE_COLUMNS = [
+    "quote_volume",
+    "trade_count",
+    "taker_buy_base",
+    "taker_buy_quote",
+]
+PRICE_COLUMNS = [*CORE_PRICE_COLUMNS, *OPTIONAL_PRICE_COLUMNS]
 
 
 class SpotKlineClient(Protocol):
@@ -68,28 +75,69 @@ def _atomic_write_parquet(frame: pd.DataFrame, path: Path) -> None:
     temporary.replace(path)
 
 
+def _normalize_completed_minute_timestamp(timestamp_ms: int) -> int:
+    """Normalize Binance ``closeTime`` (...59,999) to its availability boundary.
+
+    A completed candle ending at 12:00:59.999 becomes available at 12:01:00.000.
+    Exact minute-boundary timestamps are already normalized and remain unchanged.
+    """
+
+    return timestamp_ms + 1 if timestamp_ms % MINUTE_MS == MINUTE_MS - 1 else timestamp_ms
+
+
 def _load_prices(path: Path) -> pd.DataFrame:
     if not path.exists():
         return pd.DataFrame(columns=PRICE_COLUMNS)
     frame = pd.read_parquet(path)
-    missing = set(PRICE_COLUMNS) - set(frame.columns)
-    if missing:
-        raise ValueError(f"price dataset missing columns: {sorted(missing)}")
-    return frame[PRICE_COLUMNS].sort_values("timestamp_ms", ignore_index=True)
+    missing_core = set(CORE_PRICE_COLUMNS) - set(frame.columns)
+    if missing_core:
+        raise ValueError(f"price dataset missing core columns: {sorted(missing_core)}")
+    for column in OPTIONAL_PRICE_COLUMNS:
+        if column not in frame.columns:
+            frame[column] = pd.NA
+    frame = frame[PRICE_COLUMNS].copy()
+    frame["timestamp_ms"] = frame["timestamp_ms"].map(
+        lambda value: _normalize_completed_minute_timestamp(int(value))
+    )
+    return (
+        frame.drop_duplicates("timestamp_ms", keep="last")
+        .sort_values("timestamp_ms", ignore_index=True)
+        .reindex(columns=PRICE_COLUMNS)
+    )
+
+
+def _optional_float(payload: dict[str, object], name: str) -> float | None:
+    value = payload.get(name)
+    if value in (None, ""):
+        return None
+    return float(value)
+
+
+def _optional_int(payload: dict[str, object], name: str) -> int | None:
+    value = payload.get(name)
+    if value in (None, ""):
+        return None
+    return int(value)
 
 
 def _records_to_prices(records: list[object]) -> pd.DataFrame:
     rows: list[dict[str, object]] = []
     for record in records:
-        payload = record.payload
+        payload: dict[str, object] = record.payload
+        raw_close_time = int(payload.get("close_time_ms", record.event_time_ms))
+        timestamp_ms = _normalize_completed_minute_timestamp(raw_close_time)
         rows.append(
             {
-                "timestamp_ms": int(record.event_time_ms),
+                "timestamp_ms": timestamp_ms,
                 "price": float(payload["close"]),
                 "open": float(payload["open"]),
                 "high": float(payload["high"]),
                 "low": float(payload["low"]),
                 "volume": float(payload["volume"]),
+                "quote_volume": _optional_float(payload, "quote_volume"),
+                "trade_count": _optional_int(payload, "trade_count"),
+                "taker_buy_base": _optional_float(payload, "taker_buy_base"),
+                "taker_buy_quote": _optional_float(payload, "taker_buy_quote"),
             }
         )
     if not rows:
@@ -101,11 +149,14 @@ def _merge_prices(existing: pd.DataFrame, incoming: pd.DataFrame) -> pd.DataFram
     combined = pd.concat([existing, incoming], ignore_index=True)
     if combined.empty:
         return combined.reindex(columns=PRICE_COLUMNS)
+    combined["timestamp_ms"] = combined["timestamp_ms"].map(
+        lambda value: _normalize_completed_minute_timestamp(int(value))
+    )
     combined = combined.drop_duplicates("timestamp_ms", keep="last")
     combined = combined.sort_values("timestamp_ms", ignore_index=True)
     if not combined["timestamp_ms"].is_monotonic_increasing:
         raise ValueError("price timestamps must be monotonic")
-    return combined[PRICE_COLUMNS]
+    return combined.reindex(columns=PRICE_COLUMNS)
 
 
 class IncrementalResearchPipeline:
