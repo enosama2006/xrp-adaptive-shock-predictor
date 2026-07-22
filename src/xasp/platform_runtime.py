@@ -17,12 +17,13 @@ import pandas as pd
 
 from .anchor_dataset import AnchorDatasetStore
 from .baseline import BaselineConfig, train_multinomial_baseline
-from .features import build_price_features, join_anchors_with_features
+from .features import build_feature_diagnostics, build_price_features, join_anchors_with_features
 from .pipeline import IncrementalResearchPipeline, PipelineConfig, PipelinePaths
 from .prediction_ledger import PredictionLedger, PredictionRecord
 
 HORIZONS = (15, 30, 45, 60)
 LABELS = ("UP_10", "DOWN_10", "NO_EVENT")
+FEATURE_SCHEMA_VERSION = "market-relative-features-v2"
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +34,7 @@ class RuntimePaths:
     state: Path = Path("data/state.json")
     models: Path = Path("models/champion.joblib")
     reports: Path = Path("reports/training.json")
+    feature_diagnostics: Path = Path("reports/feature_diagnostics.json")
     ledger: Path = Path("data/predictions.parquet")
     status: Path = Path("data/platform_status.json")
 
@@ -156,6 +158,15 @@ class RealDataPlatform:
         self._status.reason = "real_data_synced_model_gate_pending"
         self._save_status()
 
+    def _save_feature_diagnostics(self, features: pd.DataFrame) -> None:
+        report = build_feature_diagnostics(features)
+        report["generated_at_ms"] = int(time.time() * 1000)
+        report["feature_schema_version"] = FEATURE_SCHEMA_VERSION
+        self.paths.feature_diagnostics.parent.mkdir(parents=True, exist_ok=True)
+        temporary = self.paths.feature_diagnostics.with_suffix(".json.tmp")
+        temporary.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
+        temporary.replace(self.paths.feature_diagnostics)
+
     def train_if_due(self, force: bool = False) -> bool:
         if not self.config.training_enabled:
             return False
@@ -170,6 +181,7 @@ class RealDataPlatform:
         if not due:
             return False
 
+        self._save_feature_diagnostics(features)
         matrix = join_anchors_with_features(anchors, features)
         feature_names = self._feature_names(features)
         models: dict[int, Any] = {}
@@ -204,6 +216,7 @@ class RealDataPlatform:
             "model_version": version,
             "trained_at_ms": int(time.time() * 1000),
             "feature_names": feature_names,
+            "feature_schema_version": FEATURE_SCHEMA_VERSION,
             "models": models,
             "reports": reports,
             "training_final_rows": final_count,
@@ -266,7 +279,9 @@ class RealDataPlatform:
                 horizon_minutes=horizon,
                 model_version=str(self._bundle["model_version"]),
                 dataset_id="real-incremental",
-                feature_schema_version="price-features-v1",
+                feature_schema_version=str(
+                    self._bundle.get("feature_schema_version", FEATURE_SCHEMA_VERSION)
+                ),
                 p_up_10=mapped["UP_10"],
                 p_down_10=mapped["DOWN_10"],
                 p_no_event=mapped["NO_EVENT"],
