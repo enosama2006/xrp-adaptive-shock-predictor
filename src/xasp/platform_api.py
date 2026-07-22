@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from contextlib import asynccontextmanager, suppress
 from dataclasses import asdict
 import json
 from pathlib import Path
 from threading import Lock
-from typing import Any
+from typing import Any, AsyncIterator
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
@@ -19,36 +20,42 @@ from .production_report import ProductionReportPaths
 
 
 def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> FastAPI:
-    app = FastAPI(title="XASP Real Data Platform", version="1.1.0")
     cycle_lock = Lock()
 
-    @app.on_event("startup")
-    async def start_worker() -> None:
-        async def worker() -> None:
-            while True:
-                try:
-                    if cycle_lock.acquire(blocking=False):
-                        try:
-                            await asyncio.to_thread(platform.run_cycle)
-                        finally:
-                            cycle_lock.release()
-                except Exception as exc:
-                    platform.status.state = "WAIT"
-                    platform.status.reason = f"runtime_error:{type(exc).__name__}:{exc}"
-                    platform._set_lifecycle(
-                        "ERROR",
-                        progress=0.0,
-                        message=f"{type(exc).__name__}:{exc}",
-                    )
-                await asyncio.sleep(60)
+    async def worker() -> None:
+        while True:
+            try:
+                if cycle_lock.acquire(blocking=False):
+                    try:
+                        await asyncio.to_thread(platform.run_cycle)
+                    finally:
+                        cycle_lock.release()
+            except Exception as exc:
+                platform.status.state = "WAIT"
+                platform.status.reason = f"runtime_error:{type(exc).__name__}:{exc}"
+                platform._set_lifecycle(
+                    "ERROR",
+                    progress=0.0,
+                    message=f"{type(exc).__name__}:{exc}",
+                )
+            await asyncio.sleep(60)
 
-        app.state.worker = asyncio.create_task(worker())
-
-    @app.on_event("shutdown")
-    async def stop_worker() -> None:
-        task = getattr(app.state, "worker", None)
-        if task is not None:
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        task = asyncio.create_task(worker(), name="xasp-real-data-worker")
+        app.state.worker = task
+        try:
+            yield
+        finally:
             task.cancel()
+            with suppress(asyncio.CancelledError):
+                await task
+
+    app = FastAPI(
+        title="XASP Real Data Platform",
+        version="1.1.0",
+        lifespan=lifespan,
+    )
 
     def model_catalog() -> dict[str, Any]:
         shock_bundle = platform.envelope.bundle
