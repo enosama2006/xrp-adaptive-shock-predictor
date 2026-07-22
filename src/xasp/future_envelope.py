@@ -1,8 +1,7 @@
-"""Parallel future-envelope models trained only on observed market outcomes.
+"""Future-excursion models trained only on observed market outcomes.
 
-The first-touch classifier answers which barrier is reached first. This module
-answers what maximum and minimum return were observed inside each future
-horizon, using candle highs/lows when available rather than only minute closes.
+Model B answers which ±10% barrier is reached first. Model A estimates observed
+future upside/downside excursions for each horizon using candle highs/lows.
 """
 
 from __future__ import annotations
@@ -14,7 +13,7 @@ import numpy as np
 import pandas as pd
 from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.impute import SimpleImputer
-from sklearn.metrics import mean_absolute_error
+from sklearn.metrics import mean_absolute_error, mean_pinball_loss
 from sklearn.pipeline import Pipeline
 
 HORIZONS = (15, 30, 45, 60)
@@ -29,6 +28,23 @@ class EnvelopeConfig:
     required_interval_coverage: float = 0.85
     minimum_interval_samples: int = 200
     random_state: int = 17
+    embargo_ms: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.minimum_rows < 30:
+            raise ValueError("minimum_rows is too small")
+        if not 0.5 <= self.train_fraction < 0.9:
+            raise ValueError("train_fraction must be in [0.5, 0.9)")
+        if not 0.05 <= self.validation_fraction < 0.3:
+            raise ValueError("validation_fraction must be in [0.05, 0.3)")
+        if self.train_fraction + self.validation_fraction >= 0.95:
+            raise ValueError("at least 5% must remain for untouched test")
+        if not 0.5 <= self.required_interval_coverage <= 1.0:
+            raise ValueError("required_interval_coverage must be in [0.5, 1]")
+        if self.minimum_interval_samples < 1:
+            raise ValueError("minimum_interval_samples must be positive")
+        if self.embargo_ms is not None and self.embargo_ms < 0:
+            raise ValueError("embargo_ms must be non-negative")
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,10 +68,8 @@ def build_future_envelope_targets(
 ) -> pd.DataFrame:
     """Create observed future max/min returns and occurrence times.
 
-    Input must contain one observed candle per minute. ``high`` and ``low`` are
-    used when supplied; otherwise ``price`` is used as a conservative fallback.
-    A target is emitted only when every minute in the future horizon exists.
-    No interpolation or synthetic market row is introduced.
+    A target is emitted only when every expected minute exists. No interpolation
+    or synthetic row is introduced.
     """
 
     required = {"timestamp_ms", "price"}
@@ -96,10 +110,17 @@ def build_future_envelope_targets(
             end_index = index_by_timestamp.get(end_ms)
             if end_index is None or end_index <= anchor_index:
                 continue
+            expected = np.arange(
+                int(anchor_ms) + 60_000,
+                end_ms + 1,
+                60_000,
+                dtype=np.int64,
+            )
+            actual = timestamps[anchor_index + 1 : end_index + 1]
+            if len(actual) != horizon or not np.array_equal(actual, expected):
+                continue
             high_segment = highs[anchor_index + 1 : end_index + 1]
             low_segment = lows[anchor_index + 1 : end_index + 1]
-            if len(high_segment) != horizon or len(low_segment) != horizon:
-                continue
             max_offset = int(np.argmax(high_segment)) + 1
             min_offset = int(np.argmin(low_segment)) + 1
             max_price = float(high_segment[max_offset - 1])
@@ -128,17 +149,49 @@ def build_future_envelope_targets(
     return pd.DataFrame(rows)
 
 
-def _split(frame: pd.DataFrame, config: EnvelopeConfig) -> tuple[pd.DataFrame, ...]:
+def _purged_split(
+    frame: pd.DataFrame,
+    config: EnvelopeConfig,
+    horizon_minutes: int,
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, int]]:
     ordered = frame.sort_values("anchor_timestamp_ms", ignore_index=True)
-    train_end = int(len(ordered) * config.train_fraction)
-    validation_end = int(
-        len(ordered) * (config.train_fraction + config.validation_fraction)
-    )
-    return (
-        ordered.iloc[:train_end],
-        ordered.iloc[train_end:validation_end],
-        ordered.iloc[validation_end:],
-    )
+    n_rows = len(ordered)
+    train_cut = int(n_rows * config.train_fraction)
+    validation_cut = int(n_rows * (config.train_fraction + config.validation_fraction))
+    if train_cut <= 0 or validation_cut <= train_cut or validation_cut >= n_rows:
+        raise ValueError("temporal split produced an empty raw partition")
+
+    validation_boundary = int(ordered.iloc[train_cut]["anchor_timestamp_ms"])
+    test_boundary = int(ordered.iloc[validation_cut]["anchor_timestamp_ms"])
+    horizon_ms = horizon_minutes * 60_000
+    embargo_ms = horizon_ms if config.embargo_ms is None else config.embargo_ms
+
+    raw_train = ordered.iloc[:train_cut]
+    raw_validation = ordered.iloc[train_cut:validation_cut]
+    raw_test = ordered.iloc[validation_cut:]
+
+    train = raw_train[raw_train["horizon_end_ms"] <= validation_boundary].copy()
+    validation = raw_validation[
+        (raw_validation["anchor_timestamp_ms"] >= validation_boundary + embargo_ms)
+        & (raw_validation["horizon_end_ms"] <= test_boundary)
+    ].copy()
+    test = raw_test[
+        raw_test["anchor_timestamp_ms"] >= test_boundary + embargo_ms
+    ].copy()
+
+    audit = {
+        "raw_train_rows": int(len(raw_train)),
+        "raw_validation_rows": int(len(raw_validation)),
+        "raw_test_rows": int(len(raw_test)),
+        "purged_train_rows": int(len(raw_train) - len(train)),
+        "purged_or_embargoed_validation_rows": int(len(raw_validation) - len(validation)),
+        "embargoed_test_rows": int(len(raw_test) - len(test)),
+        "validation_boundary_ms": validation_boundary,
+        "test_boundary_ms": test_boundary,
+        "horizon_ms": horizon_ms,
+        "embargo_ms": embargo_ms,
+    }
+    return train, validation, test, audit
 
 
 def _quantile_pipeline(quantile: float, config: EnvelopeConfig) -> Pipeline:
@@ -161,17 +214,42 @@ def _quantile_pipeline(quantile: float, config: EnvelopeConfig) -> Pipeline:
     )
 
 
+def _target_metrics(
+    target_models: dict[float, Pipeline],
+    frame: pd.DataFrame,
+    feature_names: list[str],
+    target: str,
+) -> dict[str, float | int]:
+    lower = target_models[0.05].predict(frame[feature_names])
+    median = target_models[0.50].predict(frame[feature_names])
+    upper = target_models[0.95].predict(frame[feature_names])
+    truth = frame[target].to_numpy(dtype=float)
+    return {
+        "rows": int(len(frame)),
+        "mae_median": float(mean_absolute_error(truth, median)),
+        "pinball_q05": float(mean_pinball_loss(truth, lower, alpha=0.05)),
+        "pinball_q50": float(mean_pinball_loss(truth, median, alpha=0.50)),
+        "pinball_q95": float(mean_pinball_loss(truth, upper, alpha=0.95)),
+        "interval_coverage_90": float(np.mean((truth >= lower) & (truth <= upper))),
+        "interval_mean_width": float(np.mean(upper - lower)),
+        "quantile_order_fraction": float(np.mean((lower <= median) & (median <= upper))),
+        "start_ms": int(frame["anchor_timestamp_ms"].min()),
+        "end_ms": int(frame["anchor_timestamp_ms"].max()),
+    }
+
+
 def train_future_envelope(
     dataset: pd.DataFrame,
     feature_names: list[str],
     horizon_minutes: int,
     config: EnvelopeConfig = EnvelopeConfig(),
 ) -> tuple[dict[str, Pipeline] | None, EnvelopeReport]:
-    """Fit quantile models for future maximum and minimum return."""
+    """Fit purged quantile models for future maximum and minimum return."""
 
     required = {
         "anchor_timestamp_ms",
         "horizon_minutes",
+        "horizon_end_ms",
         "future_max_return",
         "future_min_return",
         *feature_names,
@@ -184,15 +262,35 @@ def train_future_envelope(
     )
     if len(usable) < config.minimum_rows:
         return None, EnvelopeReport(
-            "WAIT", "insufficient_real_rows", len(usable), 0, 0, 0,
-            horizon_minutes, {},
+            "WAIT",
+            "insufficient_real_rows",
+            len(usable),
+            0,
+            0,
+            0,
+            horizon_minutes,
+            {},
         )
-    train, validation, test = _split(usable, config)
+
+    train, validation, test, split_audit = _purged_split(
+        usable,
+        config,
+        horizon_minutes,
+    )
     if min(len(train), len(validation), len(test)) == 0:
-        raise ValueError("temporal split produced an empty partition")
+        return None, EnvelopeReport(
+            "WAIT",
+            "insufficient_rows_after_purge_and_embargo",
+            len(usable),
+            len(train),
+            len(validation),
+            len(test),
+            horizon_minutes,
+            {"split_audit": split_audit},
+        )
 
     models: dict[str, Pipeline] = {}
-    metrics: dict[str, Any] = {}
+    metrics: dict[str, Any] = {"split_audit": split_audit}
     all_covered = True
     for target in ("future_max_return", "future_min_return"):
         target_models: dict[float, Pipeline] = {}
@@ -202,24 +300,27 @@ def train_future_envelope(
             target_models[quantile] = model
             models[f"{target}_q{int(quantile * 100):02d}"] = model
 
-        lower = target_models[0.05].predict(test[feature_names])
-        median = target_models[0.50].predict(test[feature_names])
-        upper = target_models[0.95].predict(test[feature_names])
-        truth = test[target].to_numpy(dtype=float)
-        interval_coverage = float(np.mean((truth >= lower) & (truth <= upper)))
-        ordered_fraction = float(np.mean((lower <= median) & (median <= upper)))
+        validation_metrics = _target_metrics(
+            target_models,
+            validation,
+            feature_names,
+            target,
+        )
+        test_metrics = _target_metrics(
+            target_models,
+            test,
+            feature_names,
+            target,
+        )
         metrics[target] = {
-            "mae_median": float(mean_absolute_error(truth, median)),
-            "interval_coverage_90": interval_coverage,
-            "interval_mean_width": float(np.mean(upper - lower)),
-            "quantile_order_fraction": ordered_fraction,
-            "test_start_ms": int(test["anchor_timestamp_ms"].min()),
-            "test_end_ms": int(test["anchor_timestamp_ms"].max()),
+            "validation": validation_metrics,
+            "test": test_metrics,
         }
         all_covered = all_covered and (
             len(test) >= config.minimum_interval_samples
-            and interval_coverage >= config.required_interval_coverage
-            and ordered_fraction >= 0.99
+            and float(test_metrics["interval_coverage_90"])
+            >= config.required_interval_coverage
+            and float(test_metrics["quantile_order_fraction"]) >= 0.99
         )
 
     status = "RESEARCH_ONLY" if all_covered else "WAIT"
@@ -229,8 +330,14 @@ def train_future_envelope(
         else "coverage_below_required_85pct"
     )
     report = EnvelopeReport(
-        status, reason, len(usable), len(train), len(validation), len(test),
-        horizon_minutes, metrics,
+        status,
+        reason,
+        len(usable),
+        len(train),
+        len(validation),
+        len(test),
+        horizon_minutes,
+        metrics,
     )
     return (models if all_covered else None), report
 
