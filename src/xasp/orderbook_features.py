@@ -19,8 +19,12 @@ class BookLevel:
 
 @dataclass(frozen=True, slots=True)
 class ProximityConfig:
-    bands_bps: tuple[int, ...] = (5, 10, 25, 50, 100)
-    decay_bps: float = 25.0
+    # 5 bps = 0.05%; 1000 bps = 10%, matching the prediction barrier.
+    # A 50% band is intentionally excluded from primary signals because it is far
+    # outside the 15-60 minute decision horizon and can be dominated by stale walls.
+    bands_bps: tuple[int, ...] = (5, 10, 25, 50, 100, 200, 500, 1000)
+    decay_bps: float = 50.0
+    outer_context_bps: int = 2000
 
     def __post_init__(self) -> None:
         if not self.bands_bps or any(value <= 0 for value in self.bands_bps):
@@ -29,6 +33,8 @@ class ProximityConfig:
             raise ValueError("bands_bps must be strictly increasing and unique")
         if self.decay_bps <= 0:
             raise ValueError("decay_bps must be positive")
+        if self.outer_context_bps < self.bands_bps[-1]:
+            raise ValueError("outer_context_bps must cover the widest primary band")
 
 
 def _distance_bps(level_price: float, mid_price: float) -> float:
@@ -72,8 +78,8 @@ def build_proximity_features(
 ) -> dict[str, float | None]:
     """Build liquidity features using distance from the tradable mid-price.
 
-    Total book size is retained only as context. The primary signals are executable
-    depth inside narrow basis-point bands and exponentially distance-weighted depth.
+    Primary signals use narrow executable bands and the full ±10% target path.
+    Wider depth is retained only as context, never as the dominant imbalance signal.
     """
 
     if best_bid <= 0 or best_ask <= 0 or best_ask < best_bid:
@@ -102,6 +108,15 @@ def build_proximity_features(
         features[f"ask_to_bid_pressure_{band}bps"] = (
             None if bid_depth == 0 else ask_depth / bid_depth
         )
+
+    outer_bid = _depth_within(bid_levels, mid, config.outer_context_bps)
+    outer_ask = _depth_within(ask_levels, mid, config.outer_context_bps)
+    outer_total = outer_bid + outer_ask
+    features[f"outer_bid_depth_{config.outer_context_bps}bps"] = outer_bid
+    features[f"outer_ask_depth_{config.outer_context_bps}bps"] = outer_ask
+    features[f"outer_imbalance_{config.outer_context_bps}bps"] = (
+        0.0 if outer_total == 0 else (outer_bid - outer_ask) / outer_total
+    )
 
     weighted_bid = _distance_weighted_depth(bid_levels, mid, config.decay_bps)
     weighted_ask = _distance_weighted_depth(ask_levels, mid, config.decay_bps)
