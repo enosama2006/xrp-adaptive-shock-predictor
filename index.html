@@ -13,7 +13,7 @@
       <div>
         <p class="eyebrow">XRP ADAPTIVE SHOCK PREDICTOR</p>
         <h1>نموذجان مستقلان، بيانات حقيقية، ونتائج منفصلة بالكامل</h1>
-        <p class="subtitle">تُجمع شموع XRP كل دقيقة، ويُبنى تاريخ تدريبي لا يقل عن سنة. يصدر كل نموذج توقعاته وتقاريره الخاصة دون دمج النتائج أو إخفاء حالة عدم الجاهزية.</p>
+        <p class="subtitle">تُجمع شموع XRP المكتملة كل دقيقة، ويُبنى تاريخ تدريبي لا يقل عن سنة. يصدر كل نموذج توقعاته وتقاريره الخاصة دون دمج النتائج أو إخفاء حالة عدم الجاهزية.</p>
       </div>
       <div class="connection-card">
         <span id="connectionDot" class="dot pending"></span>
@@ -26,6 +26,24 @@
       <article class="metric-card"><span>سجل الأسعار</span><strong id="priceRows">0</strong><small>شموع دقيقة حقيقية محفوظة</small></article>
       <article class="metric-card"><span>بداية البيانات</span><strong id="dataStart">—</strong><small>الهدف: سنة كاملة على الأقل</small></article>
       <article class="metric-card"><span>حالة المنصة</span><strong id="platformState" class="wait">WAIT</strong><small id="platformReason">not_started</small></article>
+    </section>
+
+    <section class="panel lifecycle-panel" aria-labelledby="lifecycleTitle">
+      <div class="lifecycle-heading">
+        <div>
+          <span class="section-kicker">دورة التشغيل الحالية</span>
+          <h2 id="lifecycleTitle">تهيئة المنصة</h2>
+          <p id="lifecycleMessage">بانتظار بدء جمع البيانات.</p>
+        </div>
+        <strong id="lifecyclePercent">0%</strong>
+      </div>
+      <progress id="lifecycleProgress" max="100" value="0">0%</progress>
+      <div class="lifecycle-stats">
+        <div><span>المعالج</span><strong id="processedRows">0</strong></div>
+        <div><span>المتوقع</span><strong id="expectedRows">0</strong></div>
+        <div><span>نقاط الحفظ</span><strong id="checkpointWrites">0</strong></div>
+        <div><span>آخر Watermark</span><strong id="currentWatermark">—</strong></div>
+      </div>
     </section>
 
     <section class="model-section shock-section">
@@ -57,7 +75,7 @@
       <div class="table-wrap"><table><thead><tr><th>وقت الإصدار</th><th>الأفق</th><th>السعر</th><th>+10%</th><th>−10%</th><th>لا حدث</th><th>الحالة</th><th>النتيجة</th></tr></thead><tbody id="ledgerBody"><tr><td colspan="8" class="empty">لم تُسجل توقعات بعد</td></tr></tbody></table></div>
     </section>
 
-    <section class="governance-note"><strong>الحكم الحالي:</strong> ظهور الصناديق لا يعني أن النموذج يعمل. الصندوق يعرض WAIT صراحةً إلى أن تتوفر سنة البيانات، يكتمل التدريب الزمني، وتجتاز بوابة الاختبار خارج العينة. التوقع كل دقيقة، وإعادة التدريب يوميًا بعد تراكم النتائج الناضجة.</section>
+    <section class="governance-note"><strong>الحكم الحالي:</strong> ظهور الصناديق لا يعني أن النموذج يعمل. تعرض المنصة مراحل جمع السنة التاريخية وبناء الخصائص والتدريب صراحةً، وتبقى WAIT إلى أن تجتاز كل بوابات الأدلة خارج العينة.</section>
   </main>
   <script type="module" src="app.js"></script>
 </body>
