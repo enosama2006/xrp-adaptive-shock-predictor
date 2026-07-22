@@ -5,13 +5,19 @@ from xasp.baseline import BaselineConfig, train_multinomial_baseline
 
 def _dataset(rows: int) -> pd.DataFrame:
     labels = ["UP_10", "DOWN_10", "NO_EVENT"]
+    label_series = [labels[i % 3] for i in range(rows)]
+    feature_map = {
+        "UP_10": (0.025, 0.012),
+        "DOWN_10": (-0.025, 0.012),
+        "NO_EVENT": (0.0, 0.002),
+    }
     return pd.DataFrame(
         {
             "anchor_timestamp_ms": [i * 60_000 for i in range(rows)],
             "status": ["FINAL"] * rows,
-            "label": [labels[i % 3] for i in range(rows)],
-            "return_1m": [((i % 11) - 5) / 1000 for i in range(rows)],
-            "volatility_5m": [0.001 + (i % 7) / 10000 for i in range(rows)],
+            "label": label_series,
+            "return_1m": [feature_map[label][0] + ((i % 5) - 2) * 0.0001 for i, label in enumerate(label_series)],
+            "volatility_5m": [feature_map[label][1] + (i % 3) * 0.00005 for i, label in enumerate(label_series)],
         }
     )
 
@@ -27,7 +33,7 @@ def test_insufficient_rows_fail_closed_to_wait() -> None:
     assert report.reason == "insufficient_final_rows"
 
 
-def test_temporal_baseline_trains_without_promotion() -> None:
+def test_temporal_baseline_trains_when_empirical_gate_passes() -> None:
     model, report = train_multinomial_baseline(
         _dataset(600),
         ["return_1m", "volatility_5m"],
@@ -35,8 +41,11 @@ def test_temporal_baseline_trains_without_promotion() -> None:
     )
     assert model is not None
     assert report.status == "RESEARCH_ONLY"
+    assert report.reason == "empirical_85pct_gate_passed_not_trading_promoted"
     assert report.train_rows < report.row_count
     assert report.test_rows > 0
+    assert report.metrics["high_confidence_predictions"] >= 50
+    assert report.metrics["high_confidence_empirical_precision"] >= 0.85
     assert report.metrics["probability_sum_max_error"] < 1e-9
     assert set(report.metrics["per_class"]) == {"UP_10", "DOWN_10", "NO_EVENT"}
 
