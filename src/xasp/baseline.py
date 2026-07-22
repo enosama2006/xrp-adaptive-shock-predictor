@@ -1,4 +1,9 @@
-"""Governed scientific baselines for first-touch event probabilities."""
+"""Governed scientific baselines for first-touch event probabilities.
+
+The promotion gate is deliberately event-specific. Correctly predicting the
+very common ``NO_EVENT`` class cannot qualify a ±10% directional model as
+research-ready.
+"""
 
 from __future__ import annotations
 
@@ -26,7 +31,9 @@ except ImportError:  # scikit-learn < 1.6
     FrozenEstimator = None  # type: ignore[assignment,misc]
 
 ALLOWED_LABELS = ("UP_10", "DOWN_10", "NO_EVENT")
+EVENT_LABELS = ("UP_10", "DOWN_10")
 EXCLUDED_LABELS = ("AMBIGUOUS", "INCOMPLETE")
+FIRST_TOUCH_GATE_VERSION = "first-touch-directional-event-gate-v2"
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,7 +44,9 @@ class BaselineConfig:
     random_state: int = 17
     prediction_confidence_threshold: float = 0.85
     required_empirical_precision: float = 0.85
-    minimum_high_confidence_predictions: int = 50
+    minimum_event_test_support_per_class: int = 10
+    minimum_high_confidence_event_predictions: int = 20
+    minimum_high_confidence_predictions_per_event_class: int = 5
     label_horizon_ms: int = 60_000
     embargo_ms: int | None = None
     calibration_bins: int = 10
@@ -55,8 +64,14 @@ class BaselineConfig:
             raise ValueError("prediction_confidence_threshold must be in [0.5, 1)")
         if not 0.5 <= self.required_empirical_precision <= 1.0:
             raise ValueError("required_empirical_precision must be in [0.5, 1]")
-        if self.minimum_high_confidence_predictions < 1:
-            raise ValueError("minimum_high_confidence_predictions must be positive")
+        if self.minimum_event_test_support_per_class < 1:
+            raise ValueError("minimum_event_test_support_per_class must be positive")
+        if self.minimum_high_confidence_event_predictions < 1:
+            raise ValueError("minimum_high_confidence_event_predictions must be positive")
+        if self.minimum_high_confidence_predictions_per_event_class < 1:
+            raise ValueError(
+                "minimum_high_confidence_predictions_per_event_class must be positive"
+            )
         if self.label_horizon_ms <= 0:
             raise ValueError("label_horizon_ms must be positive")
         if self.embargo_ms is not None and self.embargo_ms < 0:
@@ -86,12 +101,7 @@ def _purged_temporal_split(
     frame: pd.DataFrame,
     config: BaselineConfig,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, int]]:
-    """Create chronological train/calibration/test partitions with boundary purge.
-
-    Rows whose target horizon crosses into the next partition are removed. An
-    embargo equal to the target horizon by default is applied after each boundary
-    before the next partition begins. The final test remains chronologically last.
-    """
+    """Create chronological train/calibration/test partitions with boundary purge."""
 
     ordered = frame.sort_values("anchor_timestamp_ms", ignore_index=True).copy()
     if "horizon_end_ms" not in ordered.columns:
@@ -104,7 +114,11 @@ def _purged_temporal_split(
     calibration_cut_index = int(
         n_rows * (config.train_fraction + config.calibration_fraction)
     )
-    if train_cut_index <= 0 or calibration_cut_index <= train_cut_index or calibration_cut_index >= n_rows:
+    if (
+        train_cut_index <= 0
+        or calibration_cut_index <= train_cut_index
+        or calibration_cut_index >= n_rows
+    ):
         raise ValueError("temporal split produced an empty raw partition")
 
     calibration_boundary = int(ordered.iloc[train_cut_index]["anchor_timestamp_ms"])
@@ -161,14 +175,12 @@ def _calibrate_prefit_model(
     calibration_features: pd.DataFrame,
     calibration_labels: pd.Series,
 ) -> CalibratedClassifierCV:
-    """Calibrate an already-fitted estimator across supported sklearn releases."""
-
     if FrozenEstimator is not None:
         calibrated = CalibratedClassifierCV(
             estimator=FrozenEstimator(model),
             method="sigmoid",
         )
-    else:  # pragma: no cover - exercised only on older sklearn releases
+    else:  # pragma: no cover
         calibrated = CalibratedClassifierCV(
             estimator=model,
             method="sigmoid",
@@ -222,12 +234,103 @@ def _wait_report(
     )
 
 
+def _directional_gate(
+    *,
+    predictions: np.ndarray,
+    probabilities: np.ndarray,
+    classes: list[str],
+    actual: np.ndarray,
+    test: pd.DataFrame,
+    config: BaselineConfig,
+) -> tuple[bool, str, dict[str, Any]]:
+    maximum_probability = probabilities.max(axis=1)
+    all_high_confidence = maximum_probability >= config.prediction_confidence_threshold
+    all_high_count = int(all_high_confidence.sum())
+    all_high_precision = (
+        float(np.mean(predictions[all_high_confidence] == actual[all_high_confidence]))
+        if all_high_count
+        else 0.0
+    )
+
+    event_prediction = np.isin(predictions, EVENT_LABELS)
+    high_confidence_event = event_prediction & all_high_confidence
+    event_high_count = int(high_confidence_event.sum())
+    event_high_precision = (
+        float(np.mean(predictions[high_confidence_event] == actual[high_confidence_event]))
+        if event_high_count
+        else 0.0
+    )
+
+    test_event_support = {
+        label: int((test["label"] == label).sum()) for label in EVENT_LABELS
+    }
+    high_confidence_by_event: dict[str, dict[str, float | int | None]] = {}
+    event_prediction_counts: dict[str, int] = {}
+    for label in EVENT_LABELS:
+        class_mask = high_confidence_event & (predictions == label)
+        count = int(class_mask.sum())
+        event_prediction_counts[label] = count
+        high_confidence_by_event[label] = {
+            "predicted_count": count,
+            "precision": (
+                None
+                if count == 0
+                else float(np.mean(actual[class_mask] == label))
+            ),
+            "test_support": test_event_support[label],
+        }
+
+    event_probability_mass = np.zeros(len(test), dtype=float)
+    for label in EVENT_LABELS:
+        if label in classes:
+            event_probability_mass += probabilities[:, classes.index(label)]
+
+    metrics = {
+        "gate_methodology_version": FIRST_TOUCH_GATE_VERSION,
+        "high_confidence_threshold": config.prediction_confidence_threshold,
+        "all_class_high_confidence_predictions": all_high_count,
+        "all_class_high_confidence_empirical_precision": all_high_precision,
+        "directional_high_confidence_predictions": event_high_count,
+        "directional_high_confidence_empirical_precision": event_high_precision,
+        "directional_high_confidence_by_class": high_confidence_by_event,
+        "directional_test_support": test_event_support,
+        "mean_directional_probability_mass": float(event_probability_mass.mean()),
+        "required_empirical_precision": config.required_empirical_precision,
+        "minimum_event_test_support_per_class": config.minimum_event_test_support_per_class,
+        "minimum_high_confidence_event_predictions": (
+            config.minimum_high_confidence_event_predictions
+        ),
+        "minimum_high_confidence_predictions_per_event_class": (
+            config.minimum_high_confidence_predictions_per_event_class
+        ),
+        # Compatibility diagnostics. These are explicitly not the gate.
+        "high_confidence_predictions": all_high_count,
+        "high_confidence_empirical_precision": all_high_precision,
+    }
+
+    if any(
+        support < config.minimum_event_test_support_per_class
+        for support in test_event_support.values()
+    ):
+        return False, "insufficient_directional_event_test_support", metrics
+    if event_high_count < config.minimum_high_confidence_event_predictions:
+        return False, "insufficient_high_confidence_directional_predictions", metrics
+    if any(
+        count < config.minimum_high_confidence_predictions_per_event_class
+        for count in event_prediction_counts.values()
+    ):
+        return False, "insufficient_high_confidence_predictions_per_direction", metrics
+    if event_high_precision < config.required_empirical_precision:
+        return False, "directional_empirical_precision_below_required_85pct", metrics
+    return True, "directional_empirical_85pct_gate_passed_not_trading_promoted", metrics
+
+
 def train_multinomial_baseline(
     dataset: pd.DataFrame,
     feature_names: list[str],
     config: BaselineConfig = BaselineConfig(),
 ) -> tuple[Pipeline | CalibratedClassifierCV | None, BaselineReport]:
-    """Train on observed FINAL labels and fail closed unless the gate passes."""
+    """Train on observed FINAL labels and fail closed unless event gates pass."""
 
     required = {"anchor_timestamp_ms", "label", "status", *feature_names}
     missing = required - set(dataset.columns)
@@ -271,7 +374,7 @@ def train_multinomial_baseline(
         )
 
     probabilities = calibrated.predict_proba(test[feature_names])
-    predictions = calibrated.predict(test[feature_names])
+    predictions = np.asarray(calibrated.predict(test[feature_names]))
     classes = [str(value) for value in calibrated.classes_]
     precision, recall, f1, support = precision_recall_fscore_support(
         test["label"], predictions, labels=list(ALLOWED_LABELS), zero_division=0
@@ -298,31 +401,25 @@ def train_multinomial_baseline(
                 )
         per_class[label] = metrics
 
-    maximum_probability = probabilities.max(axis=1)
-    high_confidence = maximum_probability >= config.prediction_confidence_threshold
-    high_count = int(high_confidence.sum())
     test_actual = test["label"].to_numpy()
-    high_precision = (
-        float(np.mean(predictions[high_confidence] == test_actual[high_confidence]))
-        if high_count
-        else 0.0
-    )
-    gate_passed = (
-        high_count >= config.minimum_high_confidence_predictions
-        and high_precision >= config.required_empirical_precision
+    gate_passed, gate_reason, gate_metrics = _directional_gate(
+        predictions=predictions,
+        probabilities=probabilities,
+        classes=classes,
+        actual=test_actual,
+        test=test,
+        config=config,
     )
     ece = _expected_calibration_error(
         probabilities,
-        np.asarray(predictions),
+        predictions,
         test_actual,
         config.calibration_bins,
     )
 
     report = BaselineReport(
         "RESEARCH_ONLY" if gate_passed else "WAIT",
-        "empirical_85pct_gate_passed_not_trading_promoted"
-        if gate_passed
-        else "empirical_85pct_gate_failed",
+        gate_reason,
         len(usable),
         len(train),
         len(calibration),
@@ -333,10 +430,7 @@ def train_multinomial_baseline(
             "split_audit": split_audit,
             "per_class": per_class,
             "expected_calibration_error": ece,
-            "high_confidence_threshold": config.prediction_confidence_threshold,
-            "high_confidence_predictions": high_count,
-            "high_confidence_empirical_precision": high_precision,
-            "required_empirical_precision": config.required_empirical_precision,
+            **gate_metrics,
             "test_start_ms": int(test["anchor_timestamp_ms"].min()),
             "test_end_ms": int(test["anchor_timestamp_ms"].max()),
             "probability_sum_max_error": float(
