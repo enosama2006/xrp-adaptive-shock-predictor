@@ -27,7 +27,7 @@ if errorlevel 1 goto :error
 
 echo.
 echo [XASP] Running integration checks before server startup...
-"%PYTHON%" -m compileall -q src
+"%PYTHON%" -m compileall -q src scripts
 if errorlevel 1 goto :verification_error
 "%PYTHON%" -m pytest -q
 if errorlevel 1 goto :verification_error
@@ -37,7 +37,7 @@ if errorlevel 1 goto :verification_error
 REM Default bootstrap is exactly 365 days before launch, calculated in UTC.
 REM A manually supplied XASP_BOOTSTRAP_START_MS still takes precedence.
 if not defined XASP_BOOTSTRAP_START_MS (
-    for /f %%i in ('"%PYTHON%" -c "from datetime import datetime,UTC,timedelta; print(int((datetime.now(UTC)-timedelta(days=365)).timestamp()*1000))"') do set "XASP_BOOTSTRAP_START_MS=%%i"
+    for /f "usebackq delims=" %%i in (`"%PYTHON%" scripts\compute_bootstrap_ms.py`) do set "XASP_BOOTSTRAP_START_MS=%%i"
 )
 if not defined XASP_BOOTSTRAP_START_MS goto :error
 
