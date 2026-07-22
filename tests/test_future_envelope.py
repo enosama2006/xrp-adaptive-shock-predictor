@@ -3,7 +3,11 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from xasp.future_envelope import EnvelopeConfig, build_future_envelope_targets, train_future_envelope
+from xasp.future_envelope import (
+    EnvelopeConfig,
+    build_future_envelope_targets,
+    train_future_envelope,
+)
 
 
 def _prices(rows: int = 181) -> pd.DataFrame:
@@ -12,7 +16,7 @@ def _prices(rows: int = 181) -> pd.DataFrame:
     return pd.DataFrame({"timestamp_ms": timestamps, "price": price})
 
 
-def test_targets_capture_intrahorizon_high_and_low_not_only_endpoint() -> None:
+def test_targets_capture_intrahorizon_close_extremes_when_ohlc_absent() -> None:
     prices = pd.DataFrame(
         {
             "timestamp_ms": np.arange(16, dtype=np.int64) * 60_000,
@@ -21,12 +25,30 @@ def test_targets_capture_intrahorizon_high_and_low_not_only_endpoint() -> None:
     )
     targets = build_future_envelope_targets(prices, horizons=(15,))
     row = targets.iloc[0]
-    assert row["future_max_return"] == 0.11
-    assert row["future_min_return"] == -0.06
+    assert np.isclose(row["future_max_return"], 0.11)
+    assert np.isclose(row["future_min_return"], -0.06)
     assert int(row["minutes_to_max"]) == 3
     assert int(row["minutes_to_min"]) == 7
     assert bool(row["hit_up_10"])
     assert not bool(row["hit_down_10"])
+
+
+def test_targets_use_intraminute_high_and_low_not_close_only() -> None:
+    prices = pd.DataFrame(
+        {
+            "timestamp_ms": np.arange(16, dtype=np.int64) * 60_000,
+            "price": [100.0] * 16,
+            "high": [100.0, 112.0, *([100.0] * 14)],
+            "low": [100.0, *([100.0] * 5), 89.0, *([100.0] * 9)],
+        }
+    )
+    row = build_future_envelope_targets(prices, horizons=(15,)).iloc[0]
+    assert np.isclose(row["future_max_return"], 0.12)
+    assert np.isclose(row["future_min_return"], -0.11)
+    assert int(row["minutes_to_max"]) == 1
+    assert int(row["minutes_to_min"]) == 6
+    assert bool(row["hit_up_10"])
+    assert bool(row["hit_down_10"])
 
 
 def test_incomplete_horizon_is_not_fabricated() -> None:
