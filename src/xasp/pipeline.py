@@ -1,11 +1,10 @@
-"""Restart-safe minute pipeline for observed Binance candles and OHLC targets."""
+"""Restart-safe end-to-end minute pipeline for observed Binance candles and anchors."""
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Protocol
+from typing import Callable, Protocol
 
 import pandas as pd
 
@@ -41,6 +40,9 @@ class SpotKlineClient(Protocol):
     ): ...
 
 
+CheckpointCallback = Callable[[int, int, int], None]
+
+
 @dataclass(frozen=True, slots=True)
 class PipelineConfig:
     symbol: str = "XRPUSDT"
@@ -66,22 +68,6 @@ class PipelinePaths:
 
 
 @dataclass(frozen=True, slots=True)
-class PipelineProgress:
-    stage: str
-    requested_start_ms: int
-    requested_end_ms: int
-    expected_rows: int
-    processed_rows: int
-    total_price_rows: int
-    checkpoint_writes: int
-    current_watermark_ms: int | None
-    progress_fraction: float
-
-
-ProgressCallback = Callable[[PipelineProgress], None]
-
-
-@dataclass(frozen=True, slots=True)
 class PipelineRunResult:
     requested_start_ms: int
     requested_end_ms: int
@@ -90,7 +76,8 @@ class PipelineRunResult:
     anchor_rows: int
     pending_labels: int
     finalized_labels: int
-    checkpoint_writes: int = 0
+    checkpoints_written: int = 0
+    last_checkpoint_ms: int | None = None
 
 
 def _atomic_write_parquet(frame: pd.DataFrame, path: Path) -> None:
@@ -167,7 +154,14 @@ def _records_to_prices(records: list[object]) -> pd.DataFrame:
 
 
 def _merge_prices(existing: pd.DataFrame, incoming: pd.DataFrame) -> pd.DataFrame:
-    combined = pd.concat([existing, incoming], ignore_index=True)
+    # Avoid pandas' deprecated dtype inference for concatenating an empty/all-NA
+    # bootstrap frame with the first real batch.
+    if existing.empty:
+        combined = incoming.copy()
+    elif incoming.empty:
+        combined = existing.copy()
+    else:
+        combined = pd.concat([existing, incoming], ignore_index=True)
     if combined.empty:
         return combined.reindex(columns=PRICE_COLUMNS)
     combined["timestamp_ms"] = combined["timestamp_ms"].map(
@@ -193,30 +187,20 @@ def _to_candles(frame: pd.DataFrame) -> list[CandlePoint]:
     ]
 
 
-def _expected_minute_rows(start_time_ms: int, end_time_ms: int) -> int:
-    if end_time_ms < start_time_ms:
-        return 0
-    return int((end_time_ms - start_time_ms) // MINUTE_MS) + 1
-
-
-def _progress_fraction(processed_rows: int, expected_rows: int) -> float:
-    if expected_rows <= 0:
-        return 1.0
-    return min(1.0, max(0.0, processed_rows / expected_rows))
-
-
 class IncrementalResearchPipeline:
-    """Checkpoint the missing tail, then build pending/final OHLC labels."""
+    """Checkpoint real candles, then update pending/final OHLC labels."""
 
     def __init__(
         self,
         paths: PipelinePaths,
         config: PipelineConfig = PipelineConfig(),
         client: SpotKlineClient | None = None,
+        checkpoint_callback: CheckpointCallback | None = None,
     ) -> None:
         self.paths = paths
         self.config = config
         self.client = client
+        self.checkpoint_callback = checkpoint_callback
 
     def _requested_start(self, prices: pd.DataFrame) -> int:
         if prices.empty:
@@ -225,91 +209,44 @@ class IncrementalResearchPipeline:
         overlap = self.config.overlap_minutes * MINUTE_MS
         return max(self.config.bootstrap_start_ms, latest - overlap + 1)
 
-    def _notify(
-        self,
-        callback: ProgressCallback | None,
-        *,
-        stage: str,
-        start_ms: int,
-        end_ms: int,
-        expected_rows: int,
-        processed_rows: int,
-        prices: pd.DataFrame,
-        checkpoint_writes: int,
-    ) -> None:
-        if callback is None:
-            return
-        watermark = None if prices.empty else int(prices["timestamp_ms"].max())
-        callback(
-            PipelineProgress(
-                stage=stage,
-                requested_start_ms=start_ms,
-                requested_end_ms=end_ms,
-                expected_rows=expected_rows,
-                processed_rows=processed_rows,
-                total_price_rows=len(prices),
-                checkpoint_writes=checkpoint_writes,
-                current_watermark_ms=watermark,
-                progress_fraction=_progress_fraction(processed_rows, expected_rows),
-            )
-        )
-
-    def _persist_checkpoint(
+    def _save_checkpoint(
         self,
         existing: pd.DataFrame,
-        buffered_records: list[object],
-        *,
+        records: list[object],
         end_time_ms: int,
-        state_store: DatasetStateStore,
-    ) -> tuple[pd.DataFrame, int]:
-        incoming = _records_to_prices(buffered_records)
+        fetched_so_far: int,
+        checkpoint_number: int,
+    ) -> tuple[pd.DataFrame, int | None]:
+        incoming = _records_to_prices(records)
         if not incoming.empty:
-            # Binance may return the currently forming candle. Its normalized
-            # availability timestamp lies after the request cutoff and must not
-            # enter point-in-time features, labels, or predictions.
             incoming = incoming[incoming["timestamp_ms"] <= end_time_ms].copy()
-        if incoming.empty:
-            return existing, 0
-
         merged = _merge_prices(existing, incoming)
-        _atomic_write_parquet(merged, self.paths.prices)
-        state = state_store.load()
-        state.advance_raw_watermark(
-            f"binance_spot:{self.config.symbol}:kline_1m",
-            int(merged["timestamp_ms"].max()),
-        )
-        state_store.save(state)
-        return merged, len(incoming)
+        last_checkpoint_ms: int | None = None
+        if not merged.empty:
+            _atomic_write_parquet(merged, self.paths.prices)
+            last_checkpoint_ms = int(merged["timestamp_ms"].max())
+            state = DatasetStateStore(self.paths.state).load()
+            state.advance_raw_watermark(
+                f"binance_spot:{self.config.symbol}:kline_1m",
+                last_checkpoint_ms,
+            )
+            DatasetStateStore(self.paths.state).save(state)
+        if self.checkpoint_callback is not None:
+            self.checkpoint_callback(fetched_so_far, checkpoint_number, last_checkpoint_ms or 0)
+        return merged, last_checkpoint_ms
 
-    def run(
-        self,
-        end_time_ms: int,
-        progress_callback: ProgressCallback | None = None,
-    ) -> PipelineRunResult:
+    def run(self, end_time_ms: int) -> PipelineRunResult:
         if end_time_ms < self.config.bootstrap_start_ms:
             raise ValueError("end_time_ms precedes bootstrap_start_ms")
 
-        existing = _load_prices(self.paths.prices)
-        start_time_ms = self._requested_start(existing)
-        expected_rows = _expected_minute_rows(start_time_ms, end_time_ms)
-        processed_rows = 0
-        checkpoint_writes = 0
-        state_store = DatasetStateStore(self.paths.state)
-
-        self._notify(
-            progress_callback,
-            stage="COLLECT_HISTORY",
-            start_ms=start_time_ms,
-            end_ms=end_time_ms,
-            expected_rows=expected_rows,
-            processed_rows=processed_rows,
-            prices=existing,
-            checkpoint_writes=checkpoint_writes,
-        )
-
+        merged = _load_prices(self.paths.prices)
+        start_time_ms = self._requested_start(merged)
         owns_client = self.client is None
         client: SpotKlineClient = self.client or BinanceDataClient()
         buffer: list[object] = []
+        fetched_rows = 0
+        checkpoints_written = 0
+        last_checkpoint_ms: int | None = None
         try:
             for record in client.iter_spot_klines(
                 symbol=self.config.symbol,
@@ -318,88 +255,47 @@ class IncrementalResearchPipeline:
                 end_time_ms=end_time_ms,
             ):
                 buffer.append(record)
-                if len(buffer) < self.config.checkpoint_rows:
-                    continue
-                existing, accepted = self._persist_checkpoint(
-                    existing,
-                    buffer,
-                    end_time_ms=end_time_ms,
-                    state_store=state_store,
-                )
-                buffer.clear()
-                processed_rows += accepted
-                if accepted:
-                    checkpoint_writes += 1
-                self._notify(
-                    progress_callback,
-                    stage="COLLECT_HISTORY",
-                    start_ms=start_time_ms,
-                    end_ms=end_time_ms,
-                    expected_rows=expected_rows,
-                    processed_rows=processed_rows,
-                    prices=existing,
-                    checkpoint_writes=checkpoint_writes,
-                )
-
+                if len(buffer) >= self.config.checkpoint_rows:
+                    fetched_rows += len(buffer)
+                    checkpoints_written += 1
+                    merged, last_checkpoint_ms = self._save_checkpoint(
+                        merged,
+                        buffer,
+                        end_time_ms,
+                        fetched_rows,
+                        checkpoints_written,
+                    )
+                    buffer = []
             if buffer:
-                existing, accepted = self._persist_checkpoint(
-                    existing,
+                fetched_rows += len(buffer)
+                checkpoints_written += 1
+                merged, last_checkpoint_ms = self._save_checkpoint(
+                    merged,
                     buffer,
-                    end_time_ms=end_time_ms,
-                    state_store=state_store,
-                )
-                processed_rows += accepted
-                if accepted:
-                    checkpoint_writes += 1
-                self._notify(
-                    progress_callback,
-                    stage="COLLECT_HISTORY",
-                    start_ms=start_time_ms,
-                    end_ms=end_time_ms,
-                    expected_rows=expected_rows,
-                    processed_rows=processed_rows,
-                    prices=existing,
-                    checkpoint_writes=checkpoint_writes,
+                    end_time_ms,
+                    fetched_rows,
+                    checkpoints_written,
                 )
         finally:
             if owns_client and isinstance(client, BinanceDataClient):
                 client.close()
 
-        self._notify(
-            progress_callback,
-            stage="BUILD_ANCHORS",
-            start_ms=start_time_ms,
-            end_ms=end_time_ms,
-            expected_rows=expected_rows,
-            processed_rows=max(processed_rows, expected_rows),
-            prices=existing,
-            checkpoint_writes=checkpoint_writes,
-        )
         anchors = update_anchor_dataset_from_candles(
-            _to_candles(existing),
+            _to_candles(merged),
             AnchorDatasetStore(self.paths.anchors),
-            state_store,
+            DatasetStateStore(self.paths.state),
             self.config.anchor_config,
         )
-        state = state_store.load()
+        state = DatasetStateStore(self.paths.state).load()
 
-        self._notify(
-            progress_callback,
-            stage="DATA_CHECKPOINTED",
-            start_ms=start_time_ms,
-            end_ms=end_time_ms,
-            expected_rows=expected_rows,
-            processed_rows=max(processed_rows, expected_rows),
-            prices=existing,
-            checkpoint_writes=checkpoint_writes,
-        )
         return PipelineRunResult(
             requested_start_ms=start_time_ms,
             requested_end_ms=end_time_ms,
-            fetched_rows=processed_rows,
-            total_price_rows=len(existing),
+            fetched_rows=fetched_rows,
+            total_price_rows=len(merged),
             anchor_rows=len(anchors),
             pending_labels=state.pending_label_count,
             finalized_labels=state.finalized_label_count,
-            checkpoint_writes=checkpoint_writes,
+            checkpoints_written=checkpoints_written,
+            last_checkpoint_ms=last_checkpoint_ms,
         )
