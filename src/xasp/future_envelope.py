@@ -1,9 +1,8 @@
 """Parallel future-envelope models trained only on observed market outcomes.
 
-The first-touch classifier answers which barrier is reached first.  This module
-answers a different question: what maximum and minimum return were observed
-inside each future horizon, and what probabilistic envelope can be learned from
-features available at the anchor time.
+The first-touch classifier answers which barrier is reached first. This module
+answers what maximum and minimum return were observed inside each future
+horizon, using candle highs/lows when available rather than only minute closes.
 """
 
 from __future__ import annotations
@@ -51,42 +50,60 @@ def build_future_envelope_targets(
     prices: pd.DataFrame,
     horizons: tuple[int, ...] = HORIZONS,
 ) -> pd.DataFrame:
-    """Create observed future max/min returns and their occurrence times.
+    """Create observed future max/min returns and occurrence times.
 
-    Input must be one observed price per minute.  A target is FINAL only when
-    the complete future horizon is present.  No interpolation or synthetic row
-    is introduced.
+    Input must contain one observed candle per minute. ``high`` and ``low`` are
+    used when supplied; otherwise ``price`` is used as a conservative fallback.
+    A target is emitted only when every minute in the future horizon exists.
+    No interpolation or synthetic market row is introduced.
     """
 
     required = {"timestamp_ms", "price"}
     missing = required - set(prices.columns)
     if missing:
         raise ValueError(f"price dataset missing columns: {sorted(missing)}")
-    frame = prices[["timestamp_ms", "price"]].drop_duplicates("timestamp_ms", keep="last")
+
+    selected = ["timestamp_ms", "price"]
+    for optional in ("high", "low"):
+        if optional in prices.columns:
+            selected.append(optional)
+    frame = prices[selected].drop_duplicates("timestamp_ms", keep="last")
     frame = frame.sort_values("timestamp_ms", ignore_index=True)
     if frame.empty:
         return pd.DataFrame()
     if (frame["price"] <= 0).any():
         raise ValueError("prices must be positive")
 
+    frame["high"] = frame["high"] if "high" in frame else frame["price"]
+    frame["low"] = frame["low"] if "low" in frame else frame["price"]
+    if (frame["high"] < frame["low"]).any():
+        raise ValueError("candle high must be greater than or equal to low")
+    if ((frame["price"] > frame["high"]) | (frame["price"] < frame["low"])).any():
+        raise ValueError("close price must lie inside candle high/low")
+
     timestamps = frame["timestamp_ms"].to_numpy(dtype=np.int64)
-    values = frame["price"].to_numpy(dtype=float)
+    closes = frame["price"].to_numpy(dtype=float)
+    highs = frame["high"].to_numpy(dtype=float)
+    lows = frame["low"].to_numpy(dtype=float)
     rows: list[dict[str, Any]] = []
     index_by_timestamp = {int(ts): idx for idx, ts in enumerate(timestamps)}
 
-    for anchor_index, (anchor_ms, anchor_price) in enumerate(zip(timestamps, values, strict=True)):
+    for anchor_index, (anchor_ms, anchor_price) in enumerate(
+        zip(timestamps, closes, strict=True)
+    ):
         for horizon in horizons:
             end_ms = int(anchor_ms) + horizon * 60_000
             end_index = index_by_timestamp.get(end_ms)
             if end_index is None or end_index <= anchor_index:
                 continue
-            segment = values[anchor_index + 1 : end_index + 1]
-            if len(segment) != horizon:
+            high_segment = highs[anchor_index + 1 : end_index + 1]
+            low_segment = lows[anchor_index + 1 : end_index + 1]
+            if len(high_segment) != horizon or len(low_segment) != horizon:
                 continue
-            max_offset = int(np.argmax(segment)) + 1
-            min_offset = int(np.argmin(segment)) + 1
-            max_price = float(segment[max_offset - 1])
-            min_price = float(segment[min_offset - 1])
+            max_offset = int(np.argmax(high_segment)) + 1
+            min_offset = int(np.argmin(low_segment)) + 1
+            max_price = float(high_segment[max_offset - 1])
+            min_price = float(low_segment[min_offset - 1])
             rows.append(
                 {
                     "anchor_timestamp_ms": int(anchor_ms),
@@ -114,8 +131,14 @@ def build_future_envelope_targets(
 def _split(frame: pd.DataFrame, config: EnvelopeConfig) -> tuple[pd.DataFrame, ...]:
     ordered = frame.sort_values("anchor_timestamp_ms", ignore_index=True)
     train_end = int(len(ordered) * config.train_fraction)
-    validation_end = int(len(ordered) * (config.train_fraction + config.validation_fraction))
-    return ordered.iloc[:train_end], ordered.iloc[train_end:validation_end], ordered.iloc[validation_end:]
+    validation_end = int(
+        len(ordered) * (config.train_fraction + config.validation_fraction)
+    )
+    return (
+        ordered.iloc[:train_end],
+        ordered.iloc[train_end:validation_end],
+        ordered.iloc[validation_end:],
+    )
 
 
 def _quantile_pipeline(quantile: float, config: EnvelopeConfig) -> Pipeline:
@@ -144,12 +167,7 @@ def train_future_envelope(
     horizon_minutes: int,
     config: EnvelopeConfig = EnvelopeConfig(),
 ) -> tuple[dict[str, Pipeline] | None, EnvelopeReport]:
-    """Fit quantile models for future maximum and minimum return.
-
-    The model is accepted for research output only when the untouched test set
-    shows at least the configured empirical coverage for the 5%-95% interval.
-    This is an evidence gate, not a promise that future forecasts will be right.
-    """
+    """Fit quantile models for future maximum and minimum return."""
 
     required = {
         "anchor_timestamp_ms",
@@ -166,14 +184,8 @@ def train_future_envelope(
     )
     if len(usable) < config.minimum_rows:
         return None, EnvelopeReport(
-            "WAIT",
-            "insufficient_real_rows",
-            len(usable),
-            0,
-            0,
-            0,
-            horizon_minutes,
-            {},
+            "WAIT", "insufficient_real_rows", len(usable), 0, 0, 0,
+            horizon_minutes, {},
         )
     train, validation, test = _split(usable, config)
     if min(len(train), len(validation), len(test)) == 0:
@@ -211,22 +223,17 @@ def train_future_envelope(
         )
 
     status = "RESEARCH_ONLY" if all_covered else "WAIT"
-    reason = "empirical_interval_gate_passed_not_trading_promoted" if all_covered else "coverage_below_required_85pct"
+    reason = (
+        "empirical_interval_gate_passed_not_trading_promoted"
+        if all_covered
+        else "coverage_below_required_85pct"
+    )
     report = EnvelopeReport(
-        status,
-        reason,
-        len(usable),
-        len(train),
-        len(validation),
-        len(test),
-        horizon_minutes,
-        metrics,
+        status, reason, len(usable), len(train), len(validation), len(test),
+        horizon_minutes, metrics,
     )
     return (models if all_covered else None), report
 
 
 def predict_envelope(models: dict[str, Pipeline], row: pd.DataFrame) -> dict[str, float]:
-    output: dict[str, float] = {}
-    for name, model in models.items():
-        output[name] = float(model.predict(row)[0])
-    return output
+    return {name: float(model.predict(row)[0]) for name, model in models.items()}
