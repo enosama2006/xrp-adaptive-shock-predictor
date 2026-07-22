@@ -19,7 +19,7 @@ from .production_report import ProductionReportPaths
 
 
 def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> FastAPI:
-    app = FastAPI(title="XASP Real Data Platform", version="1.0.0")
+    app = FastAPI(title="XASP Real Data Platform", version="1.1.0")
     cycle_lock = Lock()
 
     @app.on_event("startup")
@@ -35,7 +35,11 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
                 except Exception as exc:
                     platform.status.state = "WAIT"
                     platform.status.reason = f"runtime_error:{type(exc).__name__}:{exc}"
-                    platform._save_status()
+                    platform._set_lifecycle(
+                        "ERROR",
+                        progress=0.0,
+                        message=f"{type(exc).__name__}:{exc}",
+                    )
                 await asyncio.sleep(60)
 
         app.state.worker = asyncio.create_task(worker())
@@ -52,9 +56,10 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
         return {
             "collection": {
                 "symbol": platform.config.symbol,
-                "sampling": "1-minute observed candles",
+                "sampling": "1-minute observed completed candles",
                 "prediction_cadence_seconds": platform.config.prediction_cadence_ms // 1000,
                 "bootstrap_start_ms": platform.config.bootstrap_start_ms,
+                "checkpoint_rows": platform.config.checkpoint_rows,
                 "retraining_policy": "daily after 5,760 newly finalized horizon rows",
                 "source": "Binance public observed market data",
             },
@@ -100,17 +105,23 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
             "production_report": report_paths.latest_json.exists(),
             "production_report_history": report_paths.history_jsonl.exists(),
         }
+        touch_ready = platform._bundle is not None
+        shock_ready = platform.envelope.bundle is not None
         return {
             "service": "UP",
             "runtime_state": platform.status.state,
             "runtime_reason": platform.status.reason,
+            "lifecycle_stage": platform.status.lifecycle_stage,
+            "lifecycle_progress": platform.status.lifecycle_progress,
+            "lifecycle_message": platform.status.lifecycle_message,
             "data_available": storage["prices"] and storage["features"],
-            "first_touch_model_available": platform._bundle is not None,
-            "adaptive_shock_model_available": platform.envelope.bundle is not None,
+            "first_touch_model_available": touch_ready,
+            "adaptive_shock_model_available": shock_ready,
             "storage": storage,
-            "ready_for_research_predictions": (
-                platform._bundle is not None and platform.envelope.bundle is not None
-            ),
+            "ready_for_first_touch_research": touch_ready,
+            "ready_for_adaptive_shock_research": shock_ready,
+            "ready_for_any_research_prediction": touch_ready or shock_ready,
+            "ready_for_all_research_predictions": touch_ready and shock_ready,
             "ready_for_trading": False,
         }
 
@@ -199,6 +210,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", default=8654, type=int)
     parser.add_argument("--minimum-final-rows", default=2_000, type=int)
+    parser.add_argument("--checkpoint-rows", default=10_000, type=int)
     return parser
 
 
@@ -210,6 +222,7 @@ def main() -> None:
             bootstrap_start_ms=args.bootstrap_start_ms,
             minimum_final_rows_per_horizon=args.minimum_final_rows,
             retrain_after_new_final_rows=5_760,
+            checkpoint_rows=args.checkpoint_rows,
         ),
     )
     uvicorn.run(create_app(platform), host=args.host, port=args.port)
