@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "xasp"
-version = "0.2.0"
+version = "0.3.0"
 description = "Governed XRP first-touch shock prediction research toolkit"
 requires-python = ">=3.11"
 dependencies = [
@@ -28,6 +28,7 @@ dev = [
 [project.scripts]
 xasp-backfill = "xasp.data.cli:main"
 xasp-live-record = "xasp.data.live:main"
+xasp-build-anchors = "xasp.anchor_cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
