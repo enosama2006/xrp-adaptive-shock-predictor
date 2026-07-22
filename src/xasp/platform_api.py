@@ -11,7 +11,6 @@ from typing import Any
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
-from fastapi.staticfiles import StaticFiles
 import uvicorn
 
 from .platform_runtime import RealDataPlatform, RuntimeConfig, RuntimePaths
@@ -54,7 +53,8 @@ def create_app(platform: RealDataPlatform, web_root: Path = Path(".")) -> FastAP
         if frame.empty:
             return []
         latest_anchor = int(frame["anchor_timestamp_ms"].max())
-        return frame[frame["anchor_timestamp_ms"] == latest_anchor].to_dict(orient="records")
+        subset = frame[frame["anchor_timestamp_ms"] == latest_anchor]
+        return subset.where(subset.notna(), None).to_dict(orient="records")
 
     @app.get("/api/ledger")
     def ledger(limit: int = 100) -> list[dict[str, Any]]:
@@ -74,7 +74,14 @@ def create_app(platform: RealDataPlatform, web_root: Path = Path(".")) -> FastAP
     def index() -> FileResponse:
         return FileResponse(web_root / "index.html")
 
-    app.mount("/static", StaticFiles(directory=web_root), name="static")
+    @app.get("/app.js")
+    def javascript() -> FileResponse:
+        return FileResponse(web_root / "app.js", media_type="application/javascript")
+
+    @app.get("/styles.css")
+    def stylesheet() -> FileResponse:
+        return FileResponse(web_root / "styles.css", media_type="text/css")
+
     return app
 
 
