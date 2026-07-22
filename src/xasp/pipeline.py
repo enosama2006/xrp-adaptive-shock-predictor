@@ -216,6 +216,11 @@ class IncrementalResearchPipeline:
                 client.close()
 
         incoming = _records_to_prices(records)
+        if not incoming.empty:
+            # Binance may return the currently forming candle. Its normalized
+            # availability timestamp lies after the request cutoff and must not
+            # enter point-in-time features, labels, or predictions.
+            incoming = incoming[incoming["timestamp_ms"] <= end_time_ms].copy()
         merged = _merge_prices(existing, incoming)
         if not merged.empty:
             _atomic_write_parquet(merged, self.paths.prices)
