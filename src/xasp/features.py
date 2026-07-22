@@ -88,7 +88,8 @@ def build_price_features(
         rolling_high = price.rolling(window=window, min_periods=1).max()
         rolling_low = price.rolling(window=window, min_periods=1).min()
         spread = (rolling_high - rolling_low).replace(0, np.nan)
-        frame[f"range_position_{window}m"] = ((price - rolling_low) / spread).fillna(0.5)
+        range_position = ((price - rolling_low) / spread).fillna(0.5)
+        frame[f"range_position_{window}m"] = range_position
         frame[f"drawdown_{window}m"] = (price / rolling_high) - 1
         frame[f"distance_from_low_{window}m"] = (price / rolling_low) - 1
 
@@ -146,7 +147,8 @@ def build_feature_diagnostics(
         if name in ignored or not pd.api.types.is_numeric_dtype(features[name]):
             continue
         series = pd.to_numeric(features[name], errors="coerce")
-        finite = series[np.isfinite(series.to_numpy(dtype=float, na_value=np.nan))].astype(float)
+        values = series.to_numpy(dtype=float, na_value=np.nan)
+        finite = series[np.isfinite(values)].astype(float)
         payload: dict[str, Any] = {
             "non_null": int(series.notna().sum()),
             "missing_fraction": float(series.isna().mean()),
@@ -157,6 +159,9 @@ def build_feature_diagnostics(
             continue
         counts, edges = np.histogram(finite.to_numpy(), bins=histogram_bins)
         quantiles = finite.quantile([0.01, 0.05, 0.25, 0.50, 0.75, 0.95, 0.99])
+        quantile_payload = {
+            str(key): float(value) for key, value in quantiles.items()
+        }
         payload.update(
             {
                 "status": "OK",
@@ -165,7 +170,7 @@ def build_feature_diagnostics(
                 "median": float(finite.median()),
                 "iqr": float(quantiles.loc[0.75] - quantiles.loc[0.25]),
                 "skewness": float(finite.skew()) if len(finite) >= 3 else None,
-                "quantiles": {str(key): float(value) for key, value in quantiles.items()},
+                "quantiles": quantile_payload,
                 "histogram": {
                     "counts": [int(value) for value in counts],
                     "edges": [float(value) for value in edges],
