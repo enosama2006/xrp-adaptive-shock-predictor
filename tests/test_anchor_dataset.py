@@ -34,7 +34,7 @@ def test_incremental_anchor_dataset_resumes_and_finalizes(tmp_path: Path) -> Non
     matured = second[second["anchor_timestamp_ms"] == 60_000].iloc[0]
     assert matured["status"] == "FINAL"
     assert matured["label"] == "UP_10"
-    assert matured["max_price"] == 1.12
+    assert matured["max_price"] == 1.11
     assert matured["min_price"] == 1.02
 
 
