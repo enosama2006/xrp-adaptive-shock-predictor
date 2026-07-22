@@ -11,6 +11,7 @@ import pandas as pd
 from .anchor_dataset import AnchorDatasetStore
 from .envelope_engine import EnvelopeEngine
 from .platform_runtime import PlatformStatus, RealDataPlatform, RuntimeConfig, RuntimePaths
+from .production_report import build_production_report, save_production_report
 
 
 class RealDataPlatformV2(RealDataPlatform):
@@ -82,17 +83,35 @@ class RealDataPlatformV2(RealDataPlatform):
         self._save_status()
         return first_touch
 
+    def generate_production_report(self) -> dict[str, Any]:
+        ledger = self.ledger.load()
+        if self.envelope.paths.predictions.exists():
+            envelope_predictions = pd.read_parquet(self.envelope.paths.predictions)
+        else:
+            envelope_predictions = pd.DataFrame()
+        prices = self._load_prices() if self.paths.prices.exists() else pd.DataFrame()
+        report = build_production_report(
+            ledger=ledger,
+            envelope_predictions=envelope_predictions,
+            prices=prices,
+            runtime_status=asdict(self.status),
+        )
+        save_production_report(report)
+        return report
+
     def run_cycle(self, force_train: bool = False) -> dict[str, Any]:
         self.sync_real_data()
         trained = self.train_if_due(force=force_train)
         first_touch_predictions = self.predict_latest()
         self.mature_predictions()
+        report = self.generate_production_report()
         return {
             "status": asdict(self.status),
             "trained": trained,
             "first_touch_predictions_created": len(first_touch_predictions),
             "envelope_predictions_created": len(self._latest_envelope_predictions),
             "envelope_model_available": self.envelope.bundle is not None,
+            "production_report": report,
         }
 
 
