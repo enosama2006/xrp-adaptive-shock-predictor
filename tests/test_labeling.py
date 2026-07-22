@@ -1,3 +1,5 @@
+import pytest
+
 from xasp.labeling import (
     BarrierConfig,
     BarrierLabel,
@@ -64,5 +66,7 @@ def test_excursions_are_recorded() -> None:
         p(0, 100),
         [p(1_000, 105), p(2_000, 94), p(3_600_000, 101)],
     )
-    assert result.max_favorable_excursion == 0.05
-    assert result.max_adverse_excursion == -0.06
+    # Financial ratios are binary floating-point values; compare numerically,
+    # not by exact bit-level equality. Production values retain full precision.
+    assert result.max_favorable_excursion == pytest.approx(0.05, abs=1e-12)
+    assert result.max_adverse_excursion == pytest.approx(-0.06, abs=1e-12)
