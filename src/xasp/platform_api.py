@@ -17,7 +17,7 @@ from .platform_runtime_v2 import RealDataPlatformV2, RuntimeConfig, RuntimePaths
 
 
 def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> FastAPI:
-    app = FastAPI(title="XASP Real Data Platform", version="0.7.0")
+    app = FastAPI(title="XASP Real Data Platform", version="0.7.1")
     cycle_lock = Lock()
 
     @app.on_event("startup")
@@ -33,6 +33,7 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
                 except Exception as exc:  # fail closed and expose the real error
                     platform.status.state = "WAIT"
                     platform.status.reason = f"runtime_error:{type(exc).__name__}:{exc}"
+                    platform._save_status()
                 await asyncio.sleep(60)
 
         app.state.worker = asyncio.create_task(worker())
@@ -42,6 +43,35 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
         task = getattr(app.state, "worker", None)
         if task is not None:
             task.cancel()
+
+    @app.get("/api/health")
+    def health() -> dict[str, Any]:
+        paths = platform.paths
+        storage = {
+            "prices": paths.prices.exists(),
+            "anchors": paths.anchors.exists(),
+            "features": paths.features.exists(),
+            "state": paths.state.exists(),
+            "first_touch_model": paths.models.exists(),
+            "first_touch_report": paths.reports.exists(),
+            "prediction_ledger": paths.ledger.exists(),
+            "envelope_targets": platform.envelope.paths.targets.exists(),
+            "envelope_model": platform.envelope.paths.model.exists(),
+            "envelope_report": platform.envelope.paths.report.exists(),
+        }
+        return {
+            "service": "UP",
+            "runtime_state": platform.status.state,
+            "runtime_reason": platform.status.reason,
+            "data_available": storage["prices"] and storage["features"],
+            "first_touch_model_available": platform._bundle is not None,
+            "envelope_model_available": platform.envelope.bundle is not None,
+            "storage": storage,
+            "ready_for_research_predictions": (
+                platform._bundle is not None and platform.envelope.bundle is not None
+            ),
+            "ready_for_trading": False,
+        }
 
     @app.get("/api/status")
     def status() -> dict[str, Any]:
