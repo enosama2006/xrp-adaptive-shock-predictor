@@ -56,7 +56,35 @@ def test_production_report_uses_only_matured_observed_predictions() -> None:
         runtime_status={"state": "RESEARCH_ONLY", "reason": "ok"},
     )
     assert report["first_touch"]["evaluated_rows"] == 1
-    assert report["first_touch"]["high_confidence_accuracy"] == 1.0
+    assert report["first_touch"]["directional_high_confidence_rows"] == 1
+    assert report["first_touch"]["directional_high_confidence_precision"] == 1.0
     assert report["future_envelope"]["evaluated_rows"] == 1
     assert report["future_envelope"]["max_interval_coverage"] == 1.0
     assert report["future_envelope"]["min_interval_coverage"] == 1.0
+    assert report["trading_readiness"] == "WAIT"
+
+
+def test_high_confidence_no_event_does_not_count_as_directional_evidence() -> None:
+    ledger = pd.DataFrame(
+        [
+            {
+                "status": "FINAL",
+                "actual_label": "NO_EVENT",
+                "horizon_minutes": 15,
+                "p_up_10": 0.0001,
+                "p_down_10": 0.0001,
+                "p_no_event": 0.9998,
+            }
+        ]
+    )
+
+    report = build_production_report(
+        ledger=ledger,
+        envelope_predictions=pd.DataFrame(),
+        prices=pd.DataFrame(),
+        runtime_status={"state": "RESEARCH_ONLY", "reason": "ok"},
+    )
+
+    assert report["first_touch"]["all_class_high_confidence_rows"] == 1
+    assert report["first_touch"]["directional_high_confidence_rows"] == 0
+    assert "insufficient_high_confidence_directional_first_touch_sample" in report["warnings"]
