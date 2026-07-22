@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "xasp"
-version = "1.0.0"
+version = "1.1.0"
 description = "Governed dual-model XRP adaptive-shock and first-touch research platform"
 requires-python = ">=3.11"
 dependencies = [
