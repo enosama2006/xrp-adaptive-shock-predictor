@@ -26,6 +26,9 @@ def test_platform_wires_routes_without_network_or_market_fabrication(tmp_path: P
     assert platform.status.reason == "not_started"
     assert "/api/status" in route_paths
     assert "/api/health" in route_paths
+    assert "/api/models" in route_paths
+    assert "/api/models/first-touch/latest" in route_paths
+    assert "/api/models/adaptive-shock/latest" in route_paths
     assert "/api/predictions/latest" in route_paths
     assert "/api/envelope/latest" in route_paths
     assert "/api/ledger" in route_paths
