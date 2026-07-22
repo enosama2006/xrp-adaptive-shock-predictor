@@ -16,6 +16,11 @@ from sklearn.metrics import brier_score_loss, precision_recall_fscore_support
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
+try:
+    from sklearn.frozen import FrozenEstimator
+except ImportError:  # scikit-learn < 1.6
+    FrozenEstimator = None  # type: ignore[assignment,misc]
+
 ALLOWED_LABELS = ("UP_10", "DOWN_10", "NO_EVENT")
 EXCLUDED_LABELS = ("AMBIGUOUS", "INCOMPLETE")
 
@@ -89,6 +94,34 @@ def _build_pipeline(config: BaselineConfig) -> Pipeline:
     )
 
 
+def _calibrate_prefit_model(
+    model: Pipeline,
+    calibration_features: pd.DataFrame,
+    calibration_labels: pd.Series,
+) -> CalibratedClassifierCV:
+    """Calibrate an already-fitted estimator across supported sklearn releases.
+
+    scikit-learn 1.6 introduced ``FrozenEstimator`` for pre-fitted estimators and
+    newer releases reject the legacy ``cv='prefit'`` value. Older supported
+    releases still require the legacy form, so the runtime selects the API that
+    is actually available instead of pinning behavior to one sklearn version.
+    """
+
+    if FrozenEstimator is not None:
+        calibrated = CalibratedClassifierCV(
+            estimator=FrozenEstimator(model),
+            method="sigmoid",
+        )
+    else:  # pragma: no cover - exercised only on older sklearn releases
+        calibrated = CalibratedClassifierCV(
+            estimator=model,
+            method="sigmoid",
+            cv="prefit",
+        )
+    calibrated.fit(calibration_features, calibration_labels)
+    return calibrated
+
+
 def _wait_report(
     reason: str,
     usable: pd.DataFrame,
@@ -117,7 +150,7 @@ def train_multinomial_baseline(
 
     The gate means that, on an untouched temporal test period, predictions whose
     reported maximum probability is at least 85% must achieve at least 85%
-    empirical precision with sufficient support.  It is not a guarantee about
+    empirical precision with sufficient support. It is not a guarantee about
     future observations.
     """
 
@@ -141,8 +174,11 @@ def train_multinomial_baseline(
     model.fit(train[feature_names], train["label"])
     calibrated: Pipeline | CalibratedClassifierCV = model
     if calibration["label"].nunique() >= 2:
-        calibrated = CalibratedClassifierCV(model, method="sigmoid", cv="prefit")
-        calibrated.fit(calibration[feature_names], calibration["label"])
+        calibrated = _calibrate_prefit_model(
+            model,
+            calibration[feature_names],
+            calibration["label"],
+        )
 
     probabilities = calibrated.predict_proba(test[feature_names])
     predictions = calibrated.predict(test[feature_names])
