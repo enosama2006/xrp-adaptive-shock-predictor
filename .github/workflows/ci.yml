@@ -18,14 +18,16 @@ jobs:
           ref: ${{ github.head_ref }}
           fetch-depth: 0
 
-      - name: Apply reviewed patch when present
+      - name: Apply reviewed patches when present
         shell: bash
         run: |
-          if [ -f docs/xasp-fixes.patch ]; then
-            git apply --check docs/xasp-fixes.patch
-            git apply docs/xasp-fixes.patch
-            rm docs/xasp-fixes.patch
-          fi
+          shopt -s nullglob
+          patches=(docs/xasp-fixes*.patch)
+          for patch in "${patches[@]}"; do
+            git apply --check "$patch"
+            git apply "$patch"
+            rm "$patch"
+          done
 
       - name: Set up Python
         uses: actions/setup-python@v5
