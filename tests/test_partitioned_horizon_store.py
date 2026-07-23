@@ -49,7 +49,9 @@ def test_upsert_partitions_by_month_and_horizon(tmp_path: Path) -> None:
     assert stats.partition_count == 4
     assert stats.horizon_rows == {15: 2, 60: 2}
     assert stats.status_counts == {"FINAL": 2, "PENDING": 2}
-    assert store.has_partition(HorizonPartitionKey(15, "2025-01"))
+    january_key = HorizonPartitionKey(15, "2025-01")
+    assert store.has_partition(january_key)
+    assert store.partition_rows(january_key) == 1
     assert store.has_partition(HorizonPartitionKey(60, "2025-02"))
 
 

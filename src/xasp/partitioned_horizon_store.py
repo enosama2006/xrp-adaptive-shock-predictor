@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import shutil
+from collections.abc import Iterable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -264,17 +265,7 @@ class PartitionedHorizonStore:
         horizon, month = identifier.split(":", maxsplit=1)
         return HorizonPartitionKey(int(horizon), month)
 
-    def upsert(
-        self,
-        incoming: pd.DataFrame,
-        *,
-        migrated_from_legacy: bool | None = None,
-    ) -> HorizonStoreStats:
-        normalized = self.normalize(incoming)
-        if normalized.empty:
-            self.ensure_ready()
-            return self.stats()
-        self.root.mkdir(parents=True, exist_ok=True)
+    def _write_normalized(self, normalized: pd.DataFrame) -> None:
         identifiers = self._keys_for_frame(normalized)
         for identifier, group in normalized.groupby(identifiers, sort=True):
             key = self._parse_identifier(str(identifier))
@@ -291,8 +282,39 @@ class PartitionedHorizonStore:
             ):
                 raise ValueError(f"mixed months in upsert partition: {key.identifier}")
             self._atomic_write_parquet(merged, path)
+
+    def upsert_frames(
+        self,
+        frames: Iterable[pd.DataFrame],
+        *,
+        migrated_from_legacy: bool | None = None,
+    ) -> HorizonStoreStats:
+        """Stream multiple frames and rebuild the manifest exactly once."""
+
+        self.root.mkdir(parents=True, exist_ok=True)
+        wrote_any = False
+        for frame in frames:
+            normalized = self.normalize(frame)
+            if normalized.empty:
+                continue
+            self._write_normalized(normalized)
+            wrote_any = True
+        if not wrote_any:
+            self.ensure_ready()
+            return self.stats()
         self.rebuild_manifest(migrated_from_legacy=migrated_from_legacy)
         return self.stats()
+
+    def upsert(
+        self,
+        incoming: pd.DataFrame,
+        *,
+        migrated_from_legacy: bool | None = None,
+    ) -> HorizonStoreStats:
+        return self.upsert_frames(
+            (incoming,),
+            migrated_from_legacy=migrated_from_legacy,
+        )
 
     def replace(self, frame: pd.DataFrame) -> HorizonStoreStats:
         normalized = self.normalize(frame)
@@ -325,6 +347,26 @@ class PartitionedHorizonStore:
     def has_partition(self, key: HorizonPartitionKey) -> bool:
         self.ensure_ready()
         return self._partition_path(key).exists()
+
+    def partition_rows(self, key: HorizonPartitionKey) -> int:
+        """Return row count from manifest metadata without reading Parquet data."""
+
+        self.ensure_ready()
+        manifest = self._read_manifest()
+        if manifest is None:
+            return 0
+        raw = manifest.get("partitions", [])
+        if not isinstance(raw, list):
+            raise ValueError(f"{self.dataset_name} manifest partitions must be a list")
+        for item in raw:
+            if not isinstance(item, dict):
+                raise ValueError("partition manifest entry must be an object")
+            if (
+                int(item["horizon_minutes"]) == key.horizon_minutes
+                and str(item["month"]) == key.month
+            ):
+                return int(item["rows"])
+        return 0
 
     def load_partition(self, key: HorizonPartitionKey) -> pd.DataFrame:
         self.ensure_ready()

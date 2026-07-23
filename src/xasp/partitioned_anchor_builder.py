@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from dataclasses import dataclass
 
 import pandas as pd
@@ -123,50 +124,51 @@ def build_partitioned_anchor_dataset(
     changed: list[HorizonPartitionKey] = []
     rebuilt_months: list[str] = []
 
-    for month in sorted(months.unique().tolist()):
-        month_mask = months == month
-        month_prices = frame.loc[month_mask]
-        if month_prices.empty:
-            continue
-        month_start_ms = int(month_prices["timestamp_ms"].min())
-        month_last_ms = int(month_prices["timestamp_ms"].max())
-        expected_anchor_rows = int(len(month_prices))
-        if not _partition_needs_rebuild(
-            store=store,
-            month=str(month),
-            horizons=horizons,
-            expected_anchor_rows=expected_anchor_rows,
-            month_last_timestamp_ms=month_last_ms,
-            latest_timestamp_ms=latest_timestamp_ms,
-            maximum_horizon_ms=maximum_horizon_ms,
-        ):
-            continue
+    def partition_frames() -> Iterator[pd.DataFrame]:
+        for month in sorted(months.unique().tolist()):
+            month_mask = months == month
+            month_prices = frame.loc[month_mask]
+            if month_prices.empty:
+                continue
+            month_start_ms = int(month_prices["timestamp_ms"].min())
+            month_last_ms = int(month_prices["timestamp_ms"].max())
+            expected_anchor_rows = int(len(month_prices))
+            if not _partition_needs_rebuild(
+                store=store,
+                month=str(month),
+                horizons=horizons,
+                expected_anchor_rows=expected_anchor_rows,
+                month_last_timestamp_ms=month_last_ms,
+                latest_timestamp_ms=latest_timestamp_ms,
+                maximum_horizon_ms=maximum_horizon_ms,
+            ):
+                continue
 
-        source_end_ms = month_last_ms + maximum_horizon_ms
-        source = frame[
-            (frame["timestamp_ms"] >= month_start_ms) & (frame["timestamp_ms"] <= source_end_ms)
-        ]
-        built = _initial_dataset(
-            _to_candles(source),
-            config,
-            chunk_rows=chunk_rows,
-        )
-        partition_rows = built[
-            (built["anchor_timestamp_ms"] >= month_start_ms)
-            & (built["anchor_timestamp_ms"] <= month_last_ms)
-            & (built["horizon_minutes"].isin(horizons))
-        ].copy()
-        if len(partition_rows) != expected_anchor_rows * len(horizons):
-            raise RuntimeError(
-                "anchor partition build did not produce one row per minute/horizon: "
-                f"month={month}, expected={expected_anchor_rows * len(horizons)}, "
-                f"actual={len(partition_rows)}"
+            source_end_ms = month_last_ms + maximum_horizon_ms
+            source = frame[
+                (frame["timestamp_ms"] >= month_start_ms) & (frame["timestamp_ms"] <= source_end_ms)
+            ]
+            built = _initial_dataset(
+                _to_candles(source),
+                config,
+                chunk_rows=chunk_rows,
             )
-        store.upsert(partition_rows.reindex(columns=ANCHOR_COLUMNS))
-        rebuilt_months.append(str(month))
-        changed.extend(HorizonPartitionKey(horizon, str(month)) for horizon in horizons)
+            partition_rows = built[
+                (built["anchor_timestamp_ms"] >= month_start_ms)
+                & (built["anchor_timestamp_ms"] <= month_last_ms)
+                & (built["horizon_minutes"].isin(horizons))
+            ].copy()
+            if len(partition_rows) != expected_anchor_rows * len(horizons):
+                raise RuntimeError(
+                    "anchor partition build did not produce one row per minute/horizon: "
+                    f"month={month}, expected={expected_anchor_rows * len(horizons)}, "
+                    f"actual={len(partition_rows)}"
+                )
+            rebuilt_months.append(str(month))
+            changed.extend(HorizonPartitionKey(horizon, str(month)) for horizon in horizons)
+            yield partition_rows.reindex(columns=ANCHOR_COLUMNS)
 
-    stats = store.stats()
+    stats = store.upsert_frames(partition_frames())
     state = state_store.load()
     state.feature_watermark_ms = latest_timestamp_ms
     state.pending_label_count = stats.pending_rows

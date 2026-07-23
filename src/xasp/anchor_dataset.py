@@ -100,7 +100,7 @@ class AnchorDatasetStore:
         return self._store.has_partition(key)
 
     def partition_rows(self, key: HorizonPartitionKey) -> int:
-        return int(len(self._store.load_partition(key)))
+        return self._store.partition_rows(key)
 
     def load_partition(self, key: HorizonPartitionKey) -> pd.DataFrame:
         return self._store.load_partition(key)
@@ -122,6 +122,9 @@ class AnchorDatasetStore:
 
     def upsert(self, frame: pd.DataFrame) -> HorizonStoreStats:
         return self._store.upsert(frame)
+
+    def upsert_frames(self, frames: Iterable[pd.DataFrame]) -> HorizonStoreStats:
+        return self._store.upsert_frames(frames)
 
     def save(self, frame: pd.DataFrame) -> None:
         self._store.replace(frame)

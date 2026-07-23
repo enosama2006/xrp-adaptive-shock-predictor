@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -102,6 +103,9 @@ class EnvelopeTargetStore:
     def upsert(self, frame: pd.DataFrame) -> HorizonStoreStats:
         return self._store.upsert(frame)
 
+    def upsert_frames(self, frames: Iterable[pd.DataFrame]) -> HorizonStoreStats:
+        return self._store.upsert_frames(frames)
+
     def replace(self, frame: pd.DataFrame) -> HorizonStoreStats:
         return self._store.replace(frame)
 
@@ -180,14 +184,21 @@ def sync_envelope_targets_from_anchors(
         selected = anchor_keys
 
     changed: list[HorizonPartitionKey] = []
-    for key in sorted(selected, key=lambda value: (value.month, value.horizon_minutes)):
-        anchors = anchor_store.load_partition(key)
-        targets = _targets_from_anchor_partition(anchors)
-        if targets.empty:
-            continue
-        target_store.upsert(targets)
-        changed.append(key)
-    return EnvelopeTargetSyncResult(target_store.stats(), tuple(changed))
+
+    def target_frames() -> Iterator[pd.DataFrame]:
+        for key in sorted(
+            selected,
+            key=lambda value: (value.month, value.horizon_minutes),
+        ):
+            anchors = anchor_store.load_partition(key)
+            targets = _targets_from_anchor_partition(anchors)
+            if targets.empty:
+                continue
+            changed.append(key)
+            yield targets
+
+    stats = target_store.upsert_frames(target_frames())
+    return EnvelopeTargetSyncResult(stats, tuple(changed))
 
 
 __all__ = [

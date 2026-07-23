@@ -1,8 +1,0 @@
-[console_scripts]
-xasp-audit-data = xasp.data_integrity:main
-xasp-backfill = xasp.data.cli:main
-xasp-build-anchors = xasp.anchor_cli:main
-xasp-expand-history = xasp.history_expansion:main
-xasp-live-record = xasp.data.live:main
-xasp-platform = xasp.platform_api:main
-xasp-run-pipeline = xasp.pipeline_cli:main
