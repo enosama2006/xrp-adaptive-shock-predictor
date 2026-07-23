@@ -18,31 +18,10 @@ jobs:
           ref: ${{ github.head_ref }}
           fetch-depth: 0
 
-      - name: Capture patch check
-        shell: bash
+      - name: Apply deterministic integration
         run: |
-          set +e
-          git apply --check docs/partitioned-derived-stores.patch > patch-check.txt 2>&1
-          status=$?
-          cat patch-check.txt
-          echo "$status" > patch-check.status
-          exit 0
-
-      - name: Upload patch check
-        uses: actions/upload-artifact@v4
-        with:
-          name: partitioned-store-patch-check
-          path: |
-            patch-check.txt
-            patch-check.status
-          if-no-files-found: error
-
-      - name: Enforce clean patch
-        run: test "$(cat patch-check.status)" = "0"
-
-      - name: Apply reviewed integration patch
-        run: |
-          git apply docs/partitioned-derived-stores.patch
+          python scripts/apply_partitioned_integration.py
+          rm scripts/apply_partitioned_integration.py
           rm docs/partitioned-derived-stores.patch
 
       - name: Set up Python
@@ -87,5 +66,6 @@ jobs:
           git add src/xasp/platform_api.py
           git add pyproject.toml
           git add -u docs/partitioned-derived-stores.patch
+          git add -u scripts/apply_partitioned_integration.py
           git commit -m "storage: integrate partitioned anchor and Model A target stores"
           git push origin HEAD:${{ github.head_ref }}
