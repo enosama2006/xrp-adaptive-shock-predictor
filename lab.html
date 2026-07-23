@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="description" content="مختبر XASP لشفافية النماذج والتقييم والتحليل الإحصائي وتجارب التنبؤ غير المحفوظة." />
+  <title>XASP — مختبر النماذج والتحليل</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <link rel="stylesheet" href="/api/lab.css" />
+</head>
+<body>
+  <main class="lab-shell">
+    <header class="lab-hero">
+      <div>
+        <div class="lab-breadcrumb"><a href="/">المنصة الرئيسية</a><span>←</span><strong>مختبر النماذج</strong></div>
+        <p class="eyebrow">MODEL RESEARCH LAB · XASP 1.7</p>
+        <h1>خلفية النموذج، أدلة تدريبه، ومخرجاته أمامك</h1>
+        <p>صفحة شفافية وتجربة بحثية تعرض الخوارزميات الفعلية، حالة كل أفق، مقاييس الاختبار الزمني، التحليل الإحصائي، ومدخلات النموذج. تجارب هذه الصفحة لا تُحفظ كتوقعات حية ولا تغيّر النموذج المعتمد.</p>
+      </div>
+      <div class="lab-live-card">
+        <span id="labConnectionDot" class="dot pending"></span>
+        <div><strong id="labConnection">جاري قراءة المنصة…</strong><small id="labUpdated">—</small></div>
+      </div>
+    </header>
+
+    <nav class="lab-tabs" aria-label="أقسام مختبر النماذج">
+      <button class="active" data-tab="overview">نظرة عامة</button>
+      <button data-tab="algorithms">الخوارزميات والخصائص</button>
+      <button data-tab="evaluation">التدريب والتقييم</button>
+      <button data-tab="statistics">التحليل الإحصائي</button>
+      <button data-tab="experiment">تجربة النموذج</button>
+      <button data-tab="raw">المخرجات الخام</button>
+    </nav>
+
+    <section id="tab-overview" class="lab-tab active">
+      <div class="lab-metrics">
+        <article><span>حالة المنصة</span><strong id="overviewPlatformState">WAIT</strong><small id="overviewPlatformReason">—</small></article>
+        <article><span>مرحلة التشغيل</span><strong id="overviewLifecycle">—</strong><small id="overviewProgress">0%</small></article>
+        <article><span>شموع الأسعار</span><strong id="overviewPriceRows">0</strong><small id="overviewDateRange">—</small></article>
+        <article><span>الجاهزية للتداول</span><strong class="negative">غير مفعلة</strong><small>المختبر بحثي فقط</small></article>
+      </div>
+      <div id="modelOverviewGrid" class="lab-model-grid"></div>
+      <article class="lab-panel policy-panel">
+        <div><span class="section-kicker">سياسة المختبر</span><h2>ما الذي تفعله التجربة وما الذي لا تفعله؟</h2></div>
+        <div id="labPolicy" class="policy-grid"></div>
+      </article>
+    </section>
+
+    <section id="tab-algorithms" class="lab-tab">
+      <div class="lab-two-columns">
+        <article class="lab-panel"><span class="model-number">MODEL A</span><h2>خوارزمية نطاق الحركة</h2><div id="algorithmA" class="detail-list"></div></article>
+        <article class="lab-panel"><span class="model-number cyan">MODEL B</span><h2>خوارزمية الوصول الأول</h2><div id="algorithmB" class="detail-list"></div></article>
+      </div>
+      <article class="lab-panel">
+        <div class="panel-title-row"><div><span class="section-kicker">FEATURE REGISTRY</span><h2>الخصائص التي يقرأها النموذج</h2></div><input id="featureSearch" type="search" placeholder="ابحث باسم الخاصية…" /></div>
+        <p class="muted">تعرض الحدود التاريخية من بيانات الخصائص الفعلية. القيم الخام المحظورة والأهداف المستقبلية لا تدخل النموذج تلقائيًا.</p>
+        <div class="table-wrap"><table class="lab-table"><thead><tr><th>الخاصية</th><th>آخر قيمة</th><th>P05</th><th>الوسيط</th><th>P95</th><th>مفقود</th><th>تستخدمها النماذج</th></tr></thead><tbody id="featureInventoryBody"><tr><td colspan="7" class="empty">بانتظار بيانات الخصائص</td></tr></tbody></table></div>
+      </article>
+    </section>
+
+    <section id="tab-evaluation" class="lab-tab">
+      <article class="lab-panel">
+        <div class="panel-title-row"><div><span class="section-kicker">MODEL A</span><h2>تقييم نطاق الحركة لكل أفق</h2></div><span id="evaluationAState" class="state-pill">WAIT</span></div>
+        <div class="table-wrap"><table class="lab-table"><thead><tr><th>الأفق</th><th>الحالة</th><th>الصفوف</th><th>Train / Validation / Test</th><th>تغطية الصعود</th><th>تغطية الهبوط</th><th>MAE الصعود</th><th>MAE الهبوط</th><th>السبب</th></tr></thead><tbody id="evaluationABody"></tbody></table></div>
+      </article>
+      <article class="lab-panel">
+        <div class="panel-title-row"><div><span class="section-kicker">MODEL B</span><h2>تقييم الوصول الأول لكل أفق</h2></div><span id="evaluationBState" class="state-pill">WAIT</span></div>
+        <div class="table-wrap"><table class="lab-table"><thead><tr><th>الأفق</th><th>الحالة</th><th>الصفوف</th><th>Train / Calibration / Test</th><th>UP / DOWN / NO EVENT</th><th>الدقة الاتجاهية</th><th>توقعات عالية الثقة</th><th>فترات Walk-Forward المقبولة</th><th>السبب</th></tr></thead><tbody id="evaluationBBody"></tbody></table></div>
+      </article>
+      <div class="lab-two-columns">
+        <article class="lab-panel"><h2>حالة التدريب الحالية</h2><div id="trainingLifecycle" class="detail-list"></div></article>
+        <article class="lab-panel"><h2>قواعد منع التسرب</h2><div id="leakageControls" class="detail-list"></div></article>
+      </div>
+    </section>
+
+    <section id="tab-statistics" class="lab-tab">
+      <div class="lab-metrics">
+        <article><span>عوائد دقيقة محللة</span><strong id="statReturnRows">0</strong><small>بيانات فعلية</small></article>
+        <article><span>الالتواء</span><strong id="statSkewness">—</strong><small>شكل عدم التناظر</small></article>
+        <article><span>التفرطح الزائد</span><strong id="statKurtosis">—</strong><small>ثقل الذيل</small></article>
+        <article><span>قيم Robust Z≥6</span><strong id="statOutliers">—</strong><small>لا تُحذف من التحليل</small></article>
+      </div>
+      <div class="lab-two-columns">
+        <article class="lab-panel"><h2>إحصاءات الوصول إلى +10%</h2><div id="statUpPassage" class="detail-list"></div></article>
+        <article class="lab-panel"><h2>إحصاءات الوصول إلى −10%</h2><div id="statDownPassage" class="detail-list"></div></article>
+      </div>
+      <article class="lab-panel">
+        <h2>الوصول والنطاق التاريخي حسب النافذة</h2>
+        <div class="table-wrap"><table class="lab-table"><thead><tr><th>النافذة</th><th>+10%</th><th>−10%</th><th>أي لمس</th><th>أول صعود</th><th>أول هبوط</th><th>صدمات مستقلة +/−</th><th>النطاق الوسيط +/−</th><th>العينة</th></tr></thead><tbody id="statHorizonBody"></tbody></table></div>
+      </article>
+      <div class="lab-two-columns">
+        <article class="lab-panel"><h2>سلامة البيانات</h2><div id="integrityAnalysis" class="detail-list"></div></article>
+        <article class="lab-panel"><h2>النوافذ المرشحة علميًا</h2><div id="windowCandidates" class="detail-list"></div></article>
+      </div>
+    </section>
+
+    <section id="tab-experiment" class="lab-tab">
+      <div class="experiment-layout">
+        <article class="lab-panel experiment-controls">
+          <div class="panel-title-row"><div><span class="section-kicker">WHAT-IF INFERENCE</span><h2>إعداد تجربة النموذج</h2></div><span id="experimentModelState" class="state-pill">WAIT</span></div>
+          <label>النموذج<select id="experimentModel"><option value="adaptive_shock">Model A — نطاق الحركة</option><option value="first_touch">Model B — الوصول الأول ±10%</option></select></label>
+          <label>الأفق<select id="experimentHorizon"></select></label>
+          <label>السعر المرجعي<input id="experimentPrice" type="number" min="0" step="any" placeholder="سعر XRP المرجعي" /></label>
+          <div class="button-row">
+            <button id="fillCurrentButton" class="primary-button" type="button">تعبئة من السوق الحالي</button>
+            <button id="resetInputsButton" class="secondary-button" type="button">إعادة القيم الحالية</button>
+          </div>
+          <div class="source-box"><span>مصدر المدخلات</span><strong id="inputSourceLabel">يدوي</strong><small id="inputTimestamp">—</small></div>
+          <div class="feature-editor-heading"><h3>مدخلات الخصائص</h3><input id="experimentFeatureSearch" type="search" placeholder="تصفية الخصائص…" /></div>
+          <div id="featureEditor" class="feature-editor"><p class="empty">بانتظار تحميل الخصائص</p></div>
+          <button id="runPredictionButton" class="run-button" type="button">تشغيل تجربة التنبؤ</button>
+        </article>
+
+        <article class="lab-panel result-panel">
+          <span class="section-kicker">ISOLATED RESULT</span><h2>نتيجة التجربة</h2>
+          <div id="experimentNotice" class="experiment-notice">لم تُشغّل تجربة بعد.</div>
+          <div id="predictionCards" class="prediction-cards"></div>
+          <div id="inputDiagnostics" class="detail-list"></div>
+          <details><summary>JSON الطلب</summary><pre id="requestJson">{}</pre></details>
+          <details open><summary>JSON الاستجابة</summary><pre id="responseJson">{}</pre></details>
+        </article>
+      </div>
+      <section class="governance-note"><strong>تنبيه:</strong> التعديل اليدوي للخصائص ينتج سيناريو افتراضيًا قد يكون خارج توزيع التدريب. النتيجة تبقى <code>WAIT</code>، لا تُضاف إلى سجل التوقعات، ولا تمثل أمر شراء أو بيع.</section>
+    </section>
+
+    <section id="tab-raw" class="lab-tab">
+      <article class="lab-panel"><div class="panel-title-row"><div><span class="section-kicker">RAW EVIDENCE</span><h2>البيانات التي تقرأ منها الصفحة</h2></div><button id="refreshLabButton" class="secondary-button">تحديث</button></div><pre id="rawOverviewJson">{}</pre></article>
+      <article class="lab-panel"><h2>آخر صف خصائص وإحصاءاته</h2><pre id="rawInputsJson">{}</pre></article>
+    </section>
+  </main>
+  <script type="module" src="/api/lab.js"></script>
+</body>
+</html>
