@@ -9,6 +9,7 @@ set "HOST=127.0.0.1"
 set "VENV=.venv"
 set "PYTHON=%VENV%\Scripts\python.exe"
 set "PIP=%VENV%\Scripts\pip.exe"
+if not defined XASP_HISTORY_DAYS set "XASP_HISTORY_DAYS=365"
 
 if not exist "%PYTHON%" (
     echo [XASP] Creating Python virtual environment...
@@ -31,20 +32,21 @@ echo [XASP] Running integration checks before server startup...
 if errorlevel 1 goto :verification_error
 "%PYTHON%" -m pytest -q
 if errorlevel 1 goto :verification_error
-"%PYTHON%" -c "from xasp.platform_api import create_app; from xasp.platform_runtime_v2 import RealDataPlatformV2; print('[XASP] Import smoke check passed')"
+"%PYTHON%" -c "from xasp.platform_api import create_app; from xasp.platform_runtime_v2 import RealDataPlatformV2; from xasp.price_store import PartitionedPriceStore; print('[XASP] Import smoke check passed')"
 if errorlevel 1 goto :verification_error
 
-REM Default bootstrap is exactly 365 days before launch, calculated in UTC.
-REM A manually supplied XASP_BOOTSTRAP_START_MS still takes precedence.
+REM XASP_HISTORY_DAYS controls the requested observed window. A manually supplied
+REM XASP_BOOTSTRAP_START_MS still takes precedence for exact reproducibility.
 if not defined XASP_BOOTSTRAP_START_MS (
-    for /f "usebackq delims=" %%i in (`"%PYTHON%" scripts\compute_bootstrap_ms.py`) do set "XASP_BOOTSTRAP_START_MS=%%i"
+    for /f "usebackq delims=" %%i in (`"%PYTHON%" scripts\compute_bootstrap_ms.py --days %XASP_HISTORY_DAYS%`) do set "XASP_BOOTSTRAP_START_MS=%%i"
 )
 if not defined XASP_BOOTSTRAP_START_MS goto :error
 
 echo.
 echo [XASP] Starting real-data platform...
 echo [XASP] URL: http://%HOST%:%PORT%
-echo [XASP] Real historical window: one year from %XASP_BOOTSTRAP_START_MS%
+echo [XASP] Requested observed history: %XASP_HISTORY_DAYS% days from %XASP_BOOTSTRAP_START_MS%
+echo [XASP] Price storage: restart-safe UTC monthly partitions; legacy file is preserved.
 echo [XASP] The server will continue collecting new observed data every minute.
 echo [XASP] Press Ctrl+C to stop the server.
 echo.
