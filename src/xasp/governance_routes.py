@@ -1,4 +1,4 @@
-"""Read-only governance evidence and API routes."""
+"""Read-only governance, discovery evidence, and API routes."""
 
 from __future__ import annotations
 
@@ -35,12 +35,14 @@ def _history_progress(payload: dict[str, Any]) -> float:
 class GovernanceEvidenceReader:
     integrity_path: Path
     expansion_path: Path
+    discovery_path: Path
 
     @classmethod
     def from_platform(cls, platform: RealDataPlatformV2) -> GovernanceEvidenceReader:
         return cls(
             integrity_path=platform.paths.reports.parent / "data_integrity.json",
             expansion_path=platform.paths.state.parent / "history_expansion_state.json",
+            discovery_path=platform.paths.reports.parent / "first_passage_discovery.json",
         )
 
     def integrity_payload(self) -> dict[str, Any]:
@@ -81,12 +83,28 @@ class GovernanceEvidenceReader:
         )
         return payload
 
+    def discovery_payload(self) -> dict[str, Any]:
+        if not self.discovery_path.exists():
+            return {
+                "status": "WAIT",
+                "reason": "no_first_passage_discovery_report",
+                "report_path": str(self.discovery_path),
+            }
+        payload = _json_object(self.discovery_path)
+        payload["report_path"] = str(self.discovery_path)
+        payload["report_updated_at_ms"] = int(
+            self.discovery_path.stat().st_mtime * 1000
+        )
+        return payload
+
     def summary_payload(self) -> dict[str, Any]:
         integrity = self.integrity_payload()
         expansion = self.expansion_payload()
+        discovery = self.discovery_payload()
         return {
             "data_integrity": integrity,
             "history_expansion": expansion,
+            "first_passage_discovery": discovery,
             "training_allowed_by_platform_policy": integrity.get("status") != "FAIL",
             "trading_promoted": False,
         }
@@ -95,6 +113,10 @@ class GovernanceEvidenceReader:
 def build_governance_router(platform: RealDataPlatformV2) -> APIRouter:
     router = APIRouter(prefix="/api", tags=["governance"])
     reader = GovernanceEvidenceReader.from_platform(platform)
+    latest_market_cache: dict[str, Any] = {
+        "timestamp_ms": None,
+        "payload": None,
+    }
 
     @router.get("/reports/data-integrity")
     def data_integrity_report() -> dict[str, Any]:
@@ -103,6 +125,52 @@ def build_governance_router(platform: RealDataPlatformV2) -> APIRouter:
     @router.get("/history-expansion")
     def history_expansion_status() -> dict[str, Any]:
         return reader.expansion_payload()
+
+    @router.get("/research/first-passage")
+    def first_passage_discovery() -> dict[str, Any]:
+        return reader.discovery_payload()
+
+    @router.get("/market/latest")
+    def latest_market() -> dict[str, Any]:
+        stats = platform.price_store.stats()
+        timestamp_ms = stats.max_timestamp_ms
+        if timestamp_ms is None:
+            return {
+                "status": "WAIT",
+                "reason": "no_observed_price_rows",
+            }
+        if latest_market_cache["timestamp_ms"] == timestamp_ms:
+            cached = latest_market_cache["payload"]
+            if isinstance(cached, dict):
+                return cast(dict[str, Any], cached)
+        frame = platform.price_store.load(
+            start_ms=timestamp_ms,
+            end_ms=timestamp_ms,
+        )
+        if frame.empty:
+            return {
+                "status": "WAIT",
+                "reason": "latest_price_row_not_found",
+                "timestamp_ms": timestamp_ms,
+            }
+        row = frame.iloc[-1]
+        payload = {
+            "status": "READY",
+            "symbol": platform.config.symbol,
+            "timestamp_ms": int(row["timestamp_ms"]),
+            "price": float(row["price"]),
+            "open": float(row["open"]),
+            "high": float(row["high"]),
+            "low": float(row["low"]),
+            "volume": float(row["volume"]),
+            "quote_volume": (
+                None if row.get("quote_volume") is None else float(row["quote_volume"])
+            ),
+            "source": "latest_observed_completed_one_minute_candle",
+        }
+        latest_market_cache["timestamp_ms"] = timestamp_ms
+        latest_market_cache["payload"] = payload
+        return payload
 
     @router.get("/governance")
     def governance_summary() -> dict[str, Any]:
