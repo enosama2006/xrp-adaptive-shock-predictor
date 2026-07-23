@@ -6,6 +6,7 @@ from typing import Any, Callable
 
 from fastapi import FastAPI
 
+from xasp.horizons import RESEARCH_HORIZONS_MINUTES
 from xasp.platform_api import create_app
 from xasp.platform_runtime import RuntimeConfig, RuntimePaths
 from xasp.platform_runtime_v2 import RealDataPlatformV2
@@ -39,7 +40,7 @@ def test_platform_wires_routes_without_network_or_market_fabrication(tmp_path: P
     route_paths = {route.path for route in app.routes}
 
     assert platform.status.state == "WAIT"
-    assert platform.status.reason == "both_model_evidence_gates_pending"
+    assert platform.status.reason == "both_model_independent_horizon_gates_pending"
     assert platform.envelope.paths.targets == tmp_path / "data" / "future_envelopes.parquet"
     assert platform.envelope.paths.model == tmp_path / "models" / "envelope_champion.joblib"
     assert platform.envelope.paths.report == tmp_path / "reports" / "envelope_training.json"
@@ -47,6 +48,7 @@ def test_platform_wires_routes_without_network_or_market_fabrication(tmp_path: P
     assert platform.envelope.bundle is None
     assert "/api/status" in route_paths
     assert "/api/health" in route_paths
+    assert "/api/horizons" in route_paths
     assert "/api/models" in route_paths
     assert "/api/models/first-touch/latest" in route_paths
     assert "/api/models/adaptive-shock/latest" in route_paths
@@ -56,6 +58,11 @@ def test_platform_wires_routes_without_network_or_market_fabrication(tmp_path: P
     assert "/api/envelope/latest" in route_paths
     assert "/api/ledger" in route_paths
     assert "/api/run-cycle" in route_paths
+
+    horizon_payload = _endpoint(app, "/api/horizons")()
+    assert horizon_payload["horizons_minutes"] == list(RESEARCH_HORIZONS_MINUTES)
+    assert horizon_payload["independent_gates"] is True
+    assert horizon_payload["trading_promoted"] is False
 
 
 def test_invalidated_first_touch_rows_are_hidden_from_public_ledger(tmp_path: Path) -> None:
@@ -107,6 +114,7 @@ def test_first_touch_report_marks_legacy_gate_output_as_stale(tmp_path: Path) ->
     assert payload["_meta"]["status"] == "STALE"
     assert payload["_meta"]["is_current"] is False
     assert payload["_meta"]["report_gate_methodology_versions"] == []
+    assert payload["_meta"]["configured_horizons"] == list(RESEARCH_HORIZONS_MINUTES)
 
 
 def test_windows_launcher_is_pinned_to_requested_port() -> None:
