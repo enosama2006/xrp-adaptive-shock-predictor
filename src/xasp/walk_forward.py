@@ -184,9 +184,76 @@ def summarize_event_support(
     return summaries
 
 
+def audit_directional_support_gate(
+    folds: list[WalkForwardFold],
+    *,
+    minimum_support_per_event_class: int = 10,
+    minimum_eligible_folds: int = 2,
+    label_column: str = "label",
+    event_labels: tuple[str, ...] = ("UP_10", "DOWN_10"),
+) -> dict[str, Any]:
+    """Fail closed unless multiple untouched periods contain both event directions.
+
+    This is a support pre-gate, not a performance claim. A fold becomes eligible
+    only when every requested directional class has enough observed examples in
+    that fold's untouched test period. Model precision and calibration must be
+    evaluated separately after this pre-gate passes.
+    """
+
+    if minimum_support_per_event_class < 1:
+        raise ValueError("minimum_support_per_event_class must be positive")
+    if minimum_eligible_folds < 1:
+        raise ValueError("minimum_eligible_folds must be positive")
+    if not event_labels:
+        raise ValueError("event_labels cannot be empty")
+
+    summaries = summarize_event_support(
+        folds,
+        label_column=label_column,
+        event_labels=event_labels,
+    )
+    aggregate_support = {label: 0 for label in event_labels}
+    eligible_fold_indices: list[int] = []
+    for summary in summaries:
+        support = summary["event_support"]
+        for label in event_labels:
+            aggregate_support[label] += int(support[label])
+        eligible = all(
+            int(support[label]) >= minimum_support_per_event_class
+            for label in event_labels
+        )
+        summary["eligible_for_directional_performance_evaluation"] = eligible
+        summary["minimum_support_per_event_class"] = minimum_support_per_event_class
+        if eligible:
+            eligible_fold_indices.append(int(summary["fold_index"]))
+
+    passed = len(eligible_fold_indices) >= minimum_eligible_folds
+    return {
+        "status": "PASS" if passed else "WAIT",
+        "reason": (
+            "multiple_untouched_periods_have_sufficient_directional_support"
+            if passed
+            else "insufficient_directional_support_across_untouched_periods"
+        ),
+        "methodology": "purged-expanding-walk-forward-directional-support-v1",
+        "fold_count": len(folds),
+        "eligible_fold_count": len(eligible_fold_indices),
+        "minimum_eligible_folds": minimum_eligible_folds,
+        "minimum_support_per_event_class": minimum_support_per_event_class,
+        "eligible_fold_indices": eligible_fold_indices,
+        "aggregate_event_support": aggregate_support,
+        "folds": summaries,
+        "note": (
+            "Passing this support gate only permits fold-level performance evaluation; "
+            "it does not certify predictive accuracy or trading readiness."
+        ),
+    }
+
+
 __all__ = [
     "WalkForwardConfig",
     "WalkForwardFold",
+    "audit_directional_support_gate",
     "build_purged_walk_forward_folds",
     "summarize_event_support",
 ]
