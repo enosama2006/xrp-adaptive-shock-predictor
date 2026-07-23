@@ -3,10 +3,10 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
-import pandas as pd
 import pytest
 
 from xasp.pipeline import IncrementalResearchPipeline, PipelineConfig, PipelinePaths
+from xasp.price_store import PartitionedPriceStore
 
 MINUTE = 60_000
 
@@ -69,6 +69,10 @@ def _paths(tmp_path: Path) -> PipelinePaths:
     )
 
 
+def _load_prices(paths: PipelinePaths):
+    return PartitionedPriceStore(paths.price_partitions, legacy_path=paths.prices).load()
+
+
 def test_interrupted_backfill_preserves_completed_checkpoints(tmp_path: Path) -> None:
     paths = _paths(tmp_path)
     pipeline = IncrementalResearchPipeline(
@@ -80,10 +84,11 @@ def test_interrupted_backfill_preserves_completed_checkpoints(tmp_path: Path) ->
     with pytest.raises(RuntimeError, match="simulated connection loss"):
         pipeline.run(10 * MINUTE)
 
-    saved = pd.read_parquet(paths.prices)
+    saved = _load_prices(paths)
     assert len(saved) == 6
     assert int(saved["timestamp_ms"].max()) == 5 * MINUTE
     assert paths.state.exists()
+    assert pipeline.price_store.stats().partition_count == 1
 
 
 def test_restart_resumes_from_checkpoint_and_completes_range(tmp_path: Path) -> None:
@@ -104,13 +109,14 @@ def test_restart_resumes_from_checkpoint_and_completes_range(tmp_path: Path) -> 
     )
     result = resumed.run(10 * MINUTE, progress_callback=progress_events.append)
 
-    saved = pd.read_parquet(paths.prices)
+    saved = _load_prices(paths)
     assert result.total_price_rows == 11
     assert len(saved) == 11
     assert int(saved["timestamp_ms"].min()) == 0
     assert int(saved["timestamp_ms"].max()) == 10 * MINUTE
     assert result.requested_start_ms > 0
     assert result.checkpoint_writes >= 1
+    assert result.price_partition_count == 1
     assert progress_events[0].stage == "COLLECT_HISTORY"
     assert progress_events[-1].stage == "DATA_CHECKPOINTED"
     assert progress_events[-1].progress_fraction == 1.0
