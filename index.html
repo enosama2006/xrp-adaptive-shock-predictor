@@ -67,6 +67,36 @@
       </div>
     </section>
 
+    <section class="model-section discovery-section" aria-labelledby="discoveryTitle">
+      <div class="model-header">
+        <div>
+          <span class="model-number">EMPIRICAL DISCOVERY</span>
+          <h2 id="discoveryTitle">استكشاف زمن الوصول إلى ±10%</h2>
+          <p>تحليل وصفي مستقل يسبق تدريب Model B. يقيس زمن الوصول الفعلي، الوسط والوسيط والمنوال والذيل، ويعرض الأرقام حتى عندما تبقى النماذج في WAIT.</p>
+        </div>
+        <div class="model-state"><span>الحالة</span><strong id="discoveryState">WAIT</strong><small id="discoveryUpdated">لم يُنشأ التقرير بعد</small></div>
+      </div>
+      <div class="lifecycle-stats discovery-summary">
+        <div><span>نقاط البداية الصالحة</span><strong id="discoveryAnchors">0</strong></div>
+        <div><span>أقصى نافذة محللة</span><strong id="discoveryMaxHorizon">—</strong></div>
+        <div><span>تواتر نقاط البداية</span><strong id="discoveryStride">—</strong></div>
+        <div><span>آخر سعر مرصود</span><strong id="discoveryLatestPrice">—</strong></div>
+      </div>
+      <div class="model-footer-grid">
+        <article class="panel"><h3>إحصاءات الوصول إلى +10%</h3><div id="upPassageStats" class="factor-list"></div></article>
+        <article class="panel"><h3>إحصاءات الوصول إلى −10%</h3><div id="downPassageStats" class="factor-list"></div></article>
+      </div>
+      <div class="model-footer-grid">
+        <article class="panel"><h3>شكل توزيع عوائد الدقيقة</h3><div id="returnDistributionStats" class="factor-list"></div></article>
+        <article class="panel"><h3>عوامل السوق الخارجية</h3><div id="externalContextStatus" class="factor-list"></div></article>
+      </div>
+      <article class="panel discovery-table-panel">
+        <h3>معدلات الوصول والنطاق التاريخي حسب النافذة</h3>
+        <div class="table-wrap"><table><thead><tr><th>النافذة</th><th>+10% وصل</th><th>−10% وصل</th><th>أي لمس</th><th>صدمات مستقلة +/−</th><th>الارتفاع الوسيط</th><th>الهبوط الوسيط</th><th>العينة</th></tr></thead><tbody id="discoveryHorizonBody"><tr><td colspan="8" class="empty">بانتظار تقرير الاستكشاف</td></tr></tbody></table></div>
+      </article>
+      <section class="governance-note"><strong>مهم:</strong> هذه أرقام تاريخية تجريبية وليست توقعات حية. تبقى الترقية للتداول غير مفعلة، ولا تدخل بيانات القيمة السوقية أو حصة الحجم في التدريب قبل جمع تاريخها كما كان متاحًا في كل لحظة.</section>
+    </section>
+
     <section class="model-section shock-section">
       <div class="model-header">
         <div><span class="model-number">MODEL A</span><h2>نموذج الصدمة التكيفي</h2><p>Adaptive Shock Magnitude Model — يتوقع نطاق الحركة الصاعدة والهابطة وشدة الصدمة المحتملة من 15 دقيقة حتى 8 ساعات.</p></div>
@@ -100,5 +130,6 @@
   </main>
   <script type="module" src="app.js"></script>
   <script type="module" src="governance.js"></script>
+  <script type="module" src="discovery.js"></script>
 </body>
 </html>
