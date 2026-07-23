@@ -7,13 +7,13 @@ so descriptive analysis can correct the modeling strategy before retraining.
 
 from __future__ import annotations
 
-from typing import Any
+import typing
 
 
 QUANTILE_KEYS = ("median_minutes", "p75_minutes", "p90_minutes", "p95_minutes")
 
 
-def _nearest_covering_horizon(value: Any, horizons: list[int]) -> int | None:
+def _nearest_covering_horizon(value: typing.Any, horizons: list[int]) -> int | None:
     try:
         minutes = float(value)
     except (TypeError, ValueError):
@@ -22,12 +22,12 @@ def _nearest_covering_horizon(value: Any, horizons: list[int]) -> int | None:
 
 
 def select_candidate_windows(
-    discovery: dict[str, Any],
+    discovery: dict[str, typing.Any],
     *,
     minimum_events_per_direction: int = 30,
     minimum_independent_clusters_per_direction: int = 10,
     minimum_any_touch_rate: float = 0.005,
-) -> dict[str, Any]:
+) -> dict[str, typing.Any]:
     if discovery.get("status") != "READY":
         return {
             "status": "WAIT",
@@ -61,7 +61,7 @@ def select_candidate_windows(
                 quantile_candidates.add(candidate)
 
     evidence_candidates: list[int] = []
-    evidence: dict[str, Any] = {}
+    evidence: dict[str, typing.Any] = {}
     for horizon in horizons:
         row = raw_horizons.get(str(horizon), {})
         if not isinstance(row, dict):
