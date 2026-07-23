@@ -102,6 +102,18 @@ class MemorySafeExtendedHorizonPlatform(ExtendedHorizonRealDataPlatform):
             )
             return False
 
+        if not promoted_horizons and self._bundle is not None:
+            self.status.model_available = True
+            self.status.model_version = str(self._bundle["model_version"])
+            self.status.state = "PARTIAL_RESEARCH"
+            self.status.reason = "model_b_all_challengers_rejected_champion_retained"
+            self._set_lifecycle(
+                "MODEL_B_WAIT",
+                progress=1.0,
+                message="model_b_challengers_rejected_existing_horizons_retained",
+            )
+            return False
+
         version = f"real-logistic-independent-horizons-{int(time.time())}"
         bundle: dict[str, Any] = {
             "model_version": version,
@@ -142,7 +154,7 @@ class MemorySafeExtendedHorizonPlatform(ExtendedHorizonRealDataPlatform):
             progress=1.0,
             message="model_b_independent_horizon_gates_evaluated",
         )
-        return bool(promoted_horizons)
+        return True
 
 
 __all__ = ["MemorySafeExtendedHorizonPlatform"]
