@@ -1,41 +1,60 @@
 name: XASP CI
 
 on:
+  push:
+    branches: [main]
   pull_request:
     branches: [main]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 20
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.12"]
+
     steps:
-      - name: Checkout verification branch
+      - name: Checkout
         uses: actions/checkout@v4
-        with:
-          ref: ci/verify-1.3.0-eight-hour-horizons
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
+          cache: pip
 
-      - name: Install project
-        run: python -m pip install -q -e ".[dev]"
-
-      - name: Persist mypy findings
+      - name: Install
         run: |
-          mkdir -p docs
-          mypy src > docs/MYPY_REMAINING.txt || true
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/MYPY_REMAINING.txt
-          if ! git diff --cached --quiet; then
-            git commit -m "ci: persist mypy findings"
-            git push origin HEAD:ci/verify-1.3.0-eight-hour-horizons
-          fi
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
 
-      - name: Verify types are clean
-        run: grep -q "Success: no issues found" docs/MYPY_REMAINING.txt
+      - name: Compile all Python modules
+        run: python -m compileall -q src tests
+
+      - name: Lint
+        run: ruff check src tests
+
+      - name: Type check
+        run: mypy src
+
+      - name: Tests
+        run: pytest --cov=xasp --cov-report=term-missing
+
+      - name: Validate browser JavaScript syntax
+        run: node --check app.js
+
+      - name: Platform import smoke check
+        run: |
+          python - <<'PY'
+          from xasp.platform_api import create_app
+          from xasp.platform_runtime import PlatformStatus
+          from xasp.platform_runtime_v2 import RealDataPlatformV2
+          from xasp.future_envelope import build_future_envelope_targets
+          from xasp.feature_registry import select_model_feature_names
+          from xasp.pipeline import PipelineProgress
+          print("XASP platform imports passed")
+          PY
