@@ -20,6 +20,8 @@ from .baseline import FIRST_TOUCH_GATE_VERSION
 from .platform_runtime_v2 import RealDataPlatformV2, RuntimeConfig, RuntimePaths
 from .production_report import ProductionReportPaths
 
+HORIZON_KEYS = ("15", "30", "45", "60")
+
 
 def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> FastAPI:
     cycle_lock = Lock()
@@ -55,13 +57,101 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
 
     app = FastAPI(
         title="XASP Real Data Platform",
-        version="1.1.1",
+        version="1.1.2",
         lifespan=lifespan,
     )
+
+    def first_touch_training_report_payload() -> dict[str, Any]:
+        path = platform.paths.reports
+        if not path.exists():
+            return {
+                "_meta": {
+                    "status": "WAIT",
+                    "reason": "no_first_touch_training_report",
+                    "is_current": False,
+                    "current_gate_methodology_version": FIRST_TOUCH_GATE_VERSION,
+                    "report_gate_methodology_versions": [],
+                    "model_available": platform._bundle is not None,
+                }
+            }
+
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        horizons = {
+            key: value
+            for key, value in raw.items()
+            if key in HORIZON_KEYS and isinstance(value, dict)
+        }
+        versions = sorted(
+            {
+                str(version)
+                for report in horizons.values()
+                if (version := report.get("metrics", {}).get("gate_methodology_version"))
+                is not None
+            }
+        )
+        current = bool(horizons) and versions == [FIRST_TOUCH_GATE_VERSION]
+        statuses = sorted({str(report.get("status", "WAIT")) for report in horizons.values()})
+        reasons = {
+            key: str(report.get("reason", "unknown")) for key, report in horizons.items()
+        }
+        meta = {
+            "status": (
+                "CURRENT"
+                if current
+                else "STALE" if horizons else "WAIT"
+            ),
+            "reason": (
+                "report_matches_current_directional_gate"
+                if current
+                else "report_was_generated_by_an_older_gate_or_training_is_still_running"
+            ),
+            "is_current": current,
+            "current_gate_methodology_version": FIRST_TOUCH_GATE_VERSION,
+            "report_gate_methodology_versions": versions,
+            "horizon_statuses": statuses,
+            "horizon_reasons": reasons,
+            "report_updated_at_ms": int(path.stat().st_mtime * 1000),
+            "model_available": platform._bundle is not None,
+            "runtime_state": platform.status.state,
+            "runtime_reason": platform.status.reason,
+        }
+        return {"_meta": meta, **horizons}
+
+    def active_first_touch_ledger() -> Any:
+        if platform._bundle is None:
+            return platform.ledger.load().iloc[0:0]
+        frame = platform.ledger.load()
+        if frame.empty:
+            return frame
+        active_version = str(platform._bundle["model_version"])
+        return frame[frame["model_version"] == active_version].copy()
+
+    def active_envelope_predictions() -> Any:
+        if platform.envelope.bundle is None or not platform.envelope.paths.predictions.exists():
+            return []
+        frame = platform._active_envelope_predictions()
+        if frame.empty:
+            return []
+        latest_anchor = int(frame["anchor_timestamp_ms"].max())
+        subset = frame[frame["anchor_timestamp_ms"] == latest_anchor]
+        return subset.where(subset.notna(), None).to_dict(orient="records")
 
     def model_catalog() -> dict[str, Any]:
         shock_bundle = platform.envelope.bundle
         touch_bundle = platform._bundle
+        touch_report = first_touch_training_report_payload()
+        touch_meta = touch_report.get("_meta", {})
+        touch_training_rows = None
+        horizon_rows = [
+            int(report.get("row_count", 0))
+            for key, report in touch_report.items()
+            if key in HORIZON_KEYS and isinstance(report, dict)
+        ]
+        if horizon_rows:
+            touch_training_rows = max(horizon_rows)
+        if touch_bundle is not None:
+            touch_training_rows = int(touch_bundle.get("training_final_rows", 0))
+
         return {
             "collection": {
                 "symbol": platform.config.symbol,
@@ -80,6 +170,11 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
                     "15/30/45/60 minutes."
                 ),
                 "available": shock_bundle is not None,
+                "availability_reason": (
+                    "historical_interval_gate_passed"
+                    if shock_bundle is not None
+                    else "no_valid_adaptive_shock_bundle"
+                ),
                 "model_version": (
                     None if shock_bundle is None else shock_bundle.get("model_version")
                 ),
@@ -89,7 +184,7 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
                 "training_rows": (
                     None if shock_bundle is None else shock_bundle.get("training_final_rows")
                 ),
-                "gate": "85% empirical interval coverage on untouched temporal test data",
+                "gate": "85% empirical marginal interval coverage on untouched temporal test data",
                 "endpoint": "/api/models/adaptive-shock/latest",
                 "training_report_endpoint": "/api/reports/training/adaptive-shock",
             },
@@ -101,16 +196,21 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
                     "within each horizon."
                 ),
                 "available": touch_bundle is not None,
+                "availability_reason": (
+                    "directional_event_gate_passed"
+                    if touch_bundle is not None
+                    else platform.status.reason
+                ),
                 "model_version": (
                     None if touch_bundle is None else touch_bundle.get("model_version")
                 ),
                 "trained_at_ms": (
                     None if touch_bundle is None else touch_bundle.get("trained_at_ms")
                 ),
-                "training_rows": (
-                    None if touch_bundle is None else touch_bundle.get("training_final_rows")
-                ),
+                "training_rows": touch_training_rows,
                 "gate_methodology_version": FIRST_TOUCH_GATE_VERSION,
+                "training_report_current": bool(touch_meta.get("is_current", False)),
+                "training_report_status": touch_meta.get("status", "WAIT"),
                 "gate": (
                     "85% empirical precision for high-confidence UP_10/DOWN_10 "
                     "predictions with minimum support per direction on untouched temporal data; "
@@ -179,13 +279,7 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
     @app.get("/api/models/first-touch/latest")
     @app.get("/api/predictions/latest")
     def latest_first_touch() -> list[dict[str, Any]]:
-        if platform._bundle is None:
-            return []
-        frame = platform.ledger.load()
-        if frame.empty:
-            return []
-        active_version = str(platform._bundle["model_version"])
-        frame = frame[frame["model_version"] == active_version]
+        frame = active_first_touch_ledger()
         if frame.empty:
             return []
         latest_anchor = int(frame["anchor_timestamp_ms"].max())
@@ -195,22 +289,21 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
     @app.get("/api/models/adaptive-shock/latest")
     @app.get("/api/envelope/latest")
     def latest_adaptive_shock() -> list[dict[str, Any]]:
-        return platform.envelope.latest_predictions()
+        return active_envelope_predictions()
 
     @app.get("/api/ledger")
     def ledger(limit: int = 100) -> list[dict[str, Any]]:
-        frame = (
-            platform.ledger.load()
-            .sort_values("created_at_ms", ascending=False)
-            .head(max(1, min(limit, 1000)))
+        frame = active_first_touch_ledger()
+        if frame.empty:
+            return []
+        frame = frame.sort_values("created_at_ms", ascending=False).head(
+            max(1, min(limit, 1000))
         )
         return frame.where(frame.notna(), None).to_dict(orient="records")
 
     @app.get("/api/reports/training/first-touch")
     def first_touch_training_report() -> dict[str, Any]:
-        if not platform.paths.reports.exists():
-            return {"status": "WAIT", "reason": "no_first_touch_training_report"}
-        return json.loads(platform.paths.reports.read_text(encoding="utf-8"))
+        return first_touch_training_report_payload()
 
     @app.get("/api/reports/training/adaptive-shock")
     def adaptive_shock_training_report() -> dict[str, Any]:
