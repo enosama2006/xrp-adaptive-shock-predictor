@@ -16,11 +16,22 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 import uvicorn
 
-from .baseline import FIRST_TOUCH_GATE_VERSION
+from .first_touch_v4 import FIRST_TOUCH_GATE_VERSION
+from .horizons import (
+    RESEARCH_HORIZON_KEYS,
+    RESEARCH_HORIZONS_MINUTES,
+    RESEARCH_HORIZON_SET_VERSION,
+)
 from .platform_runtime_v2 import RealDataPlatformV2, RuntimeConfig, RuntimePaths
-from .production_report import ProductionReportPaths
+from .production_report_v2 import ProductionReportPaths
 
-HORIZON_KEYS = ("15", "30", "45", "60")
+HORIZON_KEYS = RESEARCH_HORIZON_KEYS
+
+
+def _bundle_horizons(bundle: dict[str, Any] | None) -> list[int]:
+    if bundle is None:
+        return []
+    return sorted(int(value) for value in bundle.get("models", {}))
 
 
 def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> FastAPI:
@@ -57,7 +68,7 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
 
     app = FastAPI(
         title="XASP Real Data Platform",
-        version="1.2.0",
+        version="1.3.0",
         lifespan=lifespan,
     )
 
@@ -70,6 +81,8 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
                     "reason": "no_first_touch_training_report",
                     "is_current": False,
                     "current_gate_methodology_version": FIRST_TOUCH_GATE_VERSION,
+                    "horizon_set_version": RESEARCH_HORIZON_SET_VERSION,
+                    "configured_horizons": list(RESEARCH_HORIZONS_MINUTES),
                     "report_gate_methodology_versions": [],
                     "model_available": platform._bundle is not None,
                 }
@@ -90,7 +103,9 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
             }
         )
         current = bool(horizons) and versions == [FIRST_TOUCH_GATE_VERSION]
-        statuses = sorted({str(report.get("status", "WAIT")) for report in horizons.values()})
+        statuses = {
+            key: str(report.get("status", "WAIT")) for key, report in horizons.items()
+        }
         reasons = {
             key: str(report.get("reason", "unknown")) for key, report in horizons.items()
         }
@@ -102,18 +117,21 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
         meta = {
             "status": "CURRENT" if current else "STALE" if horizons else "WAIT",
             "reason": (
-                "report_matches_current_walk_forward_directional_gate"
+                "report_matches_current_independent_horizon_gate"
                 if current
                 else "report_was_generated_by_an_older_gate_or_training_is_still_running"
             ),
             "is_current": current,
             "current_gate_methodology_version": FIRST_TOUCH_GATE_VERSION,
+            "horizon_set_version": RESEARCH_HORIZON_SET_VERSION,
+            "configured_horizons": list(RESEARCH_HORIZONS_MINUTES),
             "report_gate_methodology_versions": versions,
             "horizon_statuses": statuses,
             "horizon_reasons": reasons,
             "walk_forward_support_by_horizon": walk_forward,
             "report_updated_at_ms": int(path.stat().st_mtime * 1000),
             "model_available": platform._bundle is not None,
+            "available_horizons": _bundle_horizons(platform._bundle),
             "runtime_state": platform.status.state,
             "runtime_reason": platform.status.reason,
         }
@@ -154,6 +172,9 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
         if touch_bundle is not None:
             touch_training_rows = int(touch_bundle.get("training_final_rows", 0))
         price_stats = platform.price_store.stats()
+        touch_available = _bundle_horizons(touch_bundle)
+        shock_available = _bundle_horizons(shock_bundle)
+        configured = list(RESEARCH_HORIZONS_MINUTES)
 
         return {
             "collection": {
@@ -165,6 +186,8 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
                 "price_rows": price_stats.total_rows,
                 "price_partition_count": price_stats.partition_count,
                 "price_partition_granularity": "UTC_MONTH",
+                "configured_horizons_minutes": configured,
+                "horizon_set_version": RESEARCH_HORIZON_SET_VERSION,
                 "retraining_policy": "daily after 5,760 newly finalized horizon rows",
                 "source": "Binance public observed market data",
             },
@@ -172,14 +195,16 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
                 "display_name": "Adaptive Shock Magnitude Model",
                 "technical_name": "future-excursion quantile regression",
                 "purpose": (
-                    "Estimate upside and downside excursion ranges for "
-                    "15/30/45/60 minutes."
+                    "Estimate upside and downside excursion ranges independently for "
+                    "15/30/45/60/120/180/240/480 minutes."
                 ),
-                "available": shock_bundle is not None,
+                "available": bool(shock_available),
+                "available_horizons": shock_available,
+                "waiting_horizons": [h for h in configured if h not in shock_available],
                 "availability_reason": (
-                    "historical_interval_gate_passed"
-                    if shock_bundle is not None
-                    else "no_valid_adaptive_shock_bundle"
+                    "one_or_more_historical_interval_gates_passed"
+                    if shock_available
+                    else "no_valid_adaptive_shock_horizon"
                 ),
                 "model_version": (
                     None if shock_bundle is None else shock_bundle.get("model_version")
@@ -190,7 +215,10 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
                 "training_rows": (
                     None if shock_bundle is None else shock_bundle.get("training_final_rows")
                 ),
-                "gate": "85% empirical marginal interval coverage on untouched temporal test data",
+                "gate": (
+                    "Independent 85% empirical marginal interval coverage gate per horizon "
+                    "on untouched temporal test data"
+                ),
                 "endpoint": "/api/models/adaptive-shock/latest",
                 "training_report_endpoint": "/api/reports/training/adaptive-shock",
             },
@@ -199,12 +227,14 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
                 "technical_name": "calibrated multiclass first-touch classifier",
                 "purpose": (
                     "Estimate whether +10%, -10%, or neither is reached first "
-                    "within each horizon."
+                    "within each independent horizon through eight hours."
                 ),
-                "available": touch_bundle is not None,
+                "available": bool(touch_available),
+                "available_horizons": touch_available,
+                "waiting_horizons": [h for h in configured if h not in touch_available],
                 "availability_reason": (
-                    "walk_forward_directional_event_gate_passed"
-                    if touch_bundle is not None
+                    "one_or_more_independent_directional_horizon_gates_passed"
+                    if touch_available
                     else platform.status.reason
                 ),
                 "model_version": (
@@ -218,10 +248,10 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
                 "training_report_current": bool(touch_meta.get("is_current", False)),
                 "training_report_status": touch_meta.get("status", "WAIT"),
                 "gate": (
-                    "Multiple purged walk-forward test periods must contain enough UP_10 and "
-                    "DOWN_10 events; the latest untouched temporal test must then achieve 85% "
-                    "empirical precision for high-confidence directional predictions. "
-                    "NO_EVENT accuracy cannot pass the gate."
+                    "Each horizon needs multiple purged untouched periods with sufficient "
+                    "independent UP_10 and DOWN_10 event clusters, then at least 85% empirical "
+                    "precision for high-confidence directional predictions. NO_EVENT cannot "
+                    "pass the directional gate."
                 ),
                 "endpoint": "/api/models/first-touch/latest",
                 "training_report_endpoint": "/api/reports/training/first-touch",
@@ -249,8 +279,9 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
             "production_report": report_paths.latest_json.exists(),
             "production_report_history": report_paths.history_jsonl.exists(),
         }
-        touch_ready = platform._bundle is not None
-        shock_ready = platform.envelope.bundle is not None
+        touch_horizons = _bundle_horizons(platform._bundle)
+        shock_horizons = _bundle_horizons(platform.envelope.bundle)
+        configured = set(RESEARCH_HORIZONS_MINUTES)
         return {
             "service": "UP",
             "runtime_state": platform.status.state,
@@ -260,28 +291,57 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
             "lifecycle_message": platform.status.lifecycle_message,
             "data_available": storage["prices"] and storage["features"],
             "price_store": asdict(price_stats),
-            "first_touch_model_available": touch_ready,
-            "adaptive_shock_model_available": shock_ready,
+            "configured_horizons_minutes": list(RESEARCH_HORIZONS_MINUTES),
+            "horizon_set_version": RESEARCH_HORIZON_SET_VERSION,
+            "first_touch_available_horizons": touch_horizons,
+            "adaptive_shock_available_horizons": shock_horizons,
+            "first_touch_model_available": bool(touch_horizons),
+            "adaptive_shock_model_available": bool(shock_horizons),
             "first_touch_gate_methodology_version": FIRST_TOUCH_GATE_VERSION,
             "storage": storage,
-            "ready_for_first_touch_research": touch_ready,
-            "ready_for_adaptive_shock_research": shock_ready,
-            "ready_for_any_research_prediction": touch_ready or shock_ready,
-            "ready_for_all_research_predictions": touch_ready and shock_ready,
+            "ready_for_first_touch_research": bool(touch_horizons),
+            "ready_for_adaptive_shock_research": bool(shock_horizons),
+            "ready_for_any_research_prediction": bool(touch_horizons or shock_horizons),
+            "ready_for_all_research_predictions": (
+                set(touch_horizons) == configured and set(shock_horizons) == configured
+            ),
             "ready_for_trading": False,
         }
 
     @app.get("/api/status")
     def status() -> dict[str, Any]:
         payload = asdict(platform.status)
-        payload["adaptive_shock_model_available"] = platform.envelope.bundle is not None
-        payload["first_touch_model_available"] = platform._bundle is not None
+        payload["configured_horizons_minutes"] = list(RESEARCH_HORIZONS_MINUTES)
+        payload["horizon_set_version"] = RESEARCH_HORIZON_SET_VERSION
+        payload["adaptive_shock_available_horizons"] = _bundle_horizons(
+            platform.envelope.bundle
+        )
+        payload["first_touch_available_horizons"] = _bundle_horizons(platform._bundle)
+        payload["adaptive_shock_model_available"] = bool(
+            payload["adaptive_shock_available_horizons"]
+        )
+        payload["first_touch_model_available"] = bool(
+            payload["first_touch_available_horizons"]
+        )
         payload["first_touch_gate_methodology_version"] = FIRST_TOUCH_GATE_VERSION
         payload["required_empirical_confidence"] = 0.85
         payload["confidence_note"] = (
             "85% is an empirical out-of-sample gate, not a guarantee of future correctness"
         )
         return payload
+
+    @app.get("/api/horizons")
+    def horizons() -> dict[str, Any]:
+        return {
+            "horizon_set_version": RESEARCH_HORIZON_SET_VERSION,
+            "horizons_minutes": list(RESEARCH_HORIZONS_MINUTES),
+            "semantics": (
+                "Each horizon inspects every completed one-minute candle after the anchor "
+                "through the inclusive horizon end."
+            ),
+            "independent_gates": True,
+            "trading_promoted": False,
+        }
 
     @app.get("/api/storage/prices")
     def price_storage() -> dict[str, Any]:
