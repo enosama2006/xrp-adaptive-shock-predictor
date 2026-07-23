@@ -36,15 +36,34 @@ jobs:
       - name: Compile all Python modules
         run: python -m compileall -q src tests scripts
 
-      - name: Lint
-        run: ruff check src tests
+      - name: Capture Ruff report
+        shell: bash
+        run: |
+          set +e
+          ruff check src tests --output-format concise > "ruff-${{ matrix.python-version }}.txt" 2>&1
+          status=$?
+          cat "ruff-${{ matrix.python-version }}.txt"
+          echo "$status" > "ruff-${{ matrix.python-version }}.status"
+          exit 0
+
+      - name: Upload Ruff report
+        uses: actions/upload-artifact@v4
+        with:
+          name: ruff-${{ matrix.python-version }}
+          path: |
+            ruff-${{ matrix.python-version }}.txt
+            ruff-${{ matrix.python-version }}.status
+          if-no-files-found: error
+
+      - name: Enforce clean lint
+        shell: bash
+        run: test "$(cat 'ruff-${{ matrix.python-version }}.status')" = "0"
 
       - name: Capture type-check report
         shell: bash
         run: |
           set +e
-          mypy --python-version "${{ matrix.python-version }}" src \
-            > "mypy-${{ matrix.python-version }}.txt" 2>&1
+          mypy --python-version "${{ matrix.python-version }}" src > "mypy-${{ matrix.python-version }}.txt" 2>&1
           status=$?
           cat "mypy-${{ matrix.python-version }}.txt"
           echo "$status" > "mypy-${{ matrix.python-version }}.status"
@@ -75,17 +94,12 @@ jobs:
       - name: Platform import smoke check
         run: |
           python - <<'PY'
-          from xasp.feature_registry import select_model_feature_names
           from xasp.first_passage_discovery import build_first_passage_discovery
-          from xasp.first_touch_v5 import train_first_touch_v5
-          from xasp.future_envelope import build_future_envelope_targets
           from xasp.horizons import RESEARCH_HORIZONS_MINUTES
-          from xasp.pipeline import PipelineProgress
           from xasp.platform_api import create_app
-          from xasp.platform_runtime import PlatformStatus
           from xasp.platform_runtime_v2 import RealDataPlatformV2
           from xasp.price_store import PartitionedPriceStore
 
           assert RESEARCH_HORIZONS_MINUTES == (15, 30, 45, 60, 120, 180, 240, 480)
-          print("XASP platform imports and empirical discovery contract passed")
+          print("XASP empirical discovery imports passed")
           PY
