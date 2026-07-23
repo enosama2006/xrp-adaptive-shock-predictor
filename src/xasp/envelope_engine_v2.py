@@ -112,6 +112,8 @@ class EnvelopeEngineV2:
         if not models:
             self.bundle = None
             return False
+        if not promoted and self.bundle is not None:
+            return False
 
         bundle: dict[str, Any] = {
             "model_version": f"real-envelope-independent-horizons-{int(time.time())}",
@@ -134,7 +136,7 @@ class EnvelopeEngineV2:
         joblib.dump(bundle, temporary)
         temporary.replace(self.paths.model)
         self.bundle = bundle
-        return bool(promoted)
+        return True
 
     def predict(
         self,
