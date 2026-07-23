@@ -17,6 +17,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 
 from .first_touch_v4 import FIRST_TOUCH_GATE_VERSION
+from .governance_routes import build_governance_router
 from .horizons import (
     RESEARCH_HORIZON_KEYS,
     RESEARCH_HORIZON_SET_VERSION,
@@ -86,9 +87,10 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
 
     app = FastAPI(
         title="XASP Real Data Platform",
-        version="1.3.0",
+        version="1.4.2",
         lifespan=lifespan,
     )
+    app.include_router(build_governance_router(platform))
 
     def first_touch_training_report_payload() -> dict[str, Any]:
         path = platform.paths.reports
@@ -208,7 +210,10 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
                 "price_partition_granularity": "UTC_MONTH",
                 "configured_horizons_minutes": configured,
                 "horizon_set_version": RESEARCH_HORIZON_SET_VERSION,
-                "retraining_policy": "daily after 5,760 newly finalized horizon rows",
+                "retraining_policy": (
+                    f"after {platform.config.retrain_after_new_final_rows:,} "
+                    "newly finalized horizon rows (~1 day across eight horizons)"
+                ),
                 "source": "Binance public observed market data",
             },
             "adaptive_shock": {
@@ -451,6 +456,13 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
     def javascript() -> FileResponse:
         return FileResponse(web_root / "app.js", media_type="application/javascript")
 
+    @app.get("/governance.js")
+    def governance_javascript() -> FileResponse:
+        return FileResponse(
+            web_root / "governance.js",
+            media_type="application/javascript",
+        )
+
     @app.get("/styles.css")
     def stylesheet() -> FileResponse:
         return FileResponse(web_root / "styles.css", media_type="text/css")
@@ -475,7 +487,7 @@ def main() -> None:
         RuntimeConfig(
             bootstrap_start_ms=args.bootstrap_start_ms,
             minimum_final_rows_per_horizon=args.minimum_final_rows,
-            retrain_after_new_final_rows=5_760,
+            retrain_after_new_final_rows=11_520,
             checkpoint_rows=args.checkpoint_rows,
         ),
     )
