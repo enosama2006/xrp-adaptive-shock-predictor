@@ -10,6 +10,7 @@ import pandas as pd
 
 from .anchor_dataset import AnchorDatasetStore
 from .envelope_engine_v2 import HORIZONS, EnvelopeEngineV2, EnvelopePaths
+from .horizons import DAILY_FINALIZED_HORIZON_ROWS
 from .memory_safe_runtime import MemorySafeExtendedHorizonPlatform
 from .platform_runtime import PlatformStatus, RuntimeConfig, RuntimePaths
 from .production_report_v2 import build_production_report, save_production_report
@@ -97,10 +98,12 @@ class RealDataPlatformV2(MemorySafeExtendedHorizonPlatform):
             >= self.config.minimum_final_rows_per_horizon
             for horizon in HORIZONS
         )
+        retrain_rows = max(
+            self.config.retrain_after_new_final_rows,
+            DAILY_FINALIZED_HORIZON_ROWS,
+        )
         enough_new_rows = (
-            final_count
-            >= self._last_envelope_training_final_rows
-            + self.config.retrain_after_new_final_rows
+            final_count >= self._last_envelope_training_final_rows + retrain_rows
         )
         if not (force or (enough_rows and enough_new_rows)):
             self._refresh_research_state()
