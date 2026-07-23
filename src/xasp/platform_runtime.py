@@ -6,10 +6,10 @@ validated fitted model is unavailable, the runtime emits WAIT with an explicit r
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
 import json
-from pathlib import Path
 import time
+from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any
 
 import joblib
@@ -23,6 +23,8 @@ from .baseline import (
 )
 from .feature_registry import (
     SCHEMA_VERSION as FEATURE_SCHEMA_VERSION,
+)
+from .feature_registry import (
     audit_feature_columns,
     select_model_feature_names,
 )

@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import Any
 
 import numpy as np
-from numpy.lib.stride_tricks import sliding_window_view
 import pandas as pd
+from numpy.lib.stride_tricks import sliding_window_view
 
 from .future_envelope import HORIZONS
 

@@ -11,7 +11,6 @@ import websockets
 
 from .contracts import MarketRecord
 
-
 DEFAULT_STREAMS = (
     "xrpusdt@aggTrade/xrpusdt@bookTicker/"
     "btcusdt@aggTrade/btcusdt@bookTicker/"

@@ -7,11 +7,11 @@ WAIT. No missing horizon is filled with fabricated probabilities.
 
 from __future__ import annotations
 
-from dataclasses import asdict
 import json
-from pathlib import Path
 import shutil
 import time
+from dataclasses import asdict
+from pathlib import Path
 from typing import Any
 
 import joblib
@@ -24,7 +24,7 @@ from .fast_anchor_dataset import _initial_dataset, _normalize_candles, _save_and
 from .feature_registry import SCHEMA_VERSION as FEATURE_SCHEMA_VERSION
 from .features import join_anchors_with_features
 from .first_touch_v4 import FIRST_TOUCH_GATE_VERSION, train_first_touch_v4
-from .horizons import RESEARCH_HORIZONS_MINUTES, RESEARCH_HORIZON_SET_VERSION
+from .horizons import RESEARCH_HORIZON_SET_VERSION, RESEARCH_HORIZONS_MINUTES
 from .labeling import CandlePoint
 from .pipeline import IncrementalResearchPipeline, PipelineConfig, PipelinePaths
 from .platform_runtime import RealDataPlatform, RuntimeConfig, RuntimePaths

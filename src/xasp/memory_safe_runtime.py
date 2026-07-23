@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
 import json
 import time
+from dataclasses import asdict
 from typing import Any
 
 import joblib
@@ -12,7 +12,7 @@ import pandas as pd
 
 from .anchor_dataset import AnchorDatasetStore
 from .baseline import BaselineConfig
-from .extended_runtime import ExtendedHorizonRealDataPlatform, HORIZONS
+from .extended_runtime import HORIZONS, ExtendedHorizonRealDataPlatform
 from .feature_registry import SCHEMA_VERSION as FEATURE_SCHEMA_VERSION
 from .features import join_anchors_with_features
 from .first_touch_v4 import FIRST_TOUCH_GATE_VERSION, train_first_touch_v4
