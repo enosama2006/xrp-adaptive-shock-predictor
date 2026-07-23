@@ -1,4 +1,6 @@
 const byId = (id) => document.getElementById(id);
+const MODEL_HORIZONS = [15, 30, 45, 60, 120, 180, 240, 480];
+let latestDiscovery = null;
 
 const CONTEXT_LABELS = {
   total_crypto_market_cap: "إجمالي القيمة السوقية للكريبتو",
@@ -137,6 +139,61 @@ function renderHorizonTable(horizons) {
     .join("");
 }
 
+function enrichShockWaitCards(payload) {
+  const cards = [...byId("shockHorizonGrid").querySelectorAll(".horizon-model-card")];
+  cards.forEach((card, index) => {
+    const horizon = MODEL_HORIZONS[index];
+    const row = payload.horizons?.[String(horizon)];
+    const gate = card.querySelector("header strong")?.textContent || "";
+    if (!row || !gate.includes("WAIT")) return;
+    const excursion = row.empirical_excursion || {};
+    const list = card.querySelector("dl");
+    if (!list) return;
+    list.innerHTML = `
+      <div><dt>الارتفاع التاريخي الوسيط</dt><dd class="positive">${signedPercent(excursion.max_return_q50)}</dd></div>
+      <div><dt>الهبوط التاريخي الوسيط</dt><dd class="negative">${signedPercent(excursion.min_return_q50)}</dd></div>
+      <div><dt>نطاق الصعود 5–95%</dt><dd>${signedPercent(excursion.max_return_q05)} → ${signedPercent(excursion.max_return_q95)}</dd></div>
+      <div><dt>نطاق الهبوط 5–95%</dt><dd>${signedPercent(excursion.min_return_q05)} → ${signedPercent(excursion.min_return_q95)}</dd></div>
+      <div><dt>العينة التاريخية</dt><dd>${number(excursion.sample_rows)}</dd></div>
+      <div><dt>الحكم</dt><dd>وصفي فقط — ليس توقعًا حيًا</dd></div>`;
+    card.dataset.discoveryEnriched = "true";
+  });
+}
+
+function enrichTouchWaitCards(payload) {
+  const cards = [...byId("touchHorizonGrid").querySelectorAll(".horizon-model-card")];
+  cards.forEach((card, index) => {
+    const horizon = MODEL_HORIZONS[index];
+    const row = payload.horizons?.[String(horizon)];
+    const gate = card.querySelector("header strong")?.textContent || "";
+    if (!row || !gate.includes("WAIT")) return;
+    const list = card.querySelector("dl");
+    if (!list) return;
+    list.innerHTML = `
+      <div><dt>وصل +10% / −10%</dt><dd>${number(row.upper_10_reached_count)} / ${number(row.lower_10_reached_count)}</dd></div>
+      <div><dt>أول وصول صعود / هبوط</dt><dd>${number(row.up_first_count)} / ${number(row.down_first_count)}</dd></div>
+      <div><dt>صدمات مستقلة + / −</dt><dd>${number(row.upper_independent_clusters)} / ${number(row.lower_independent_clusters)}</dd></div>
+      <div><dt>نسبة أي لمس</dt><dd>${percent(row.any_10pct_touch_rate)}</dd></div>
+      <div><dt>العينة التاريخية</dt><dd>${number(row.sample_rows)}</dd></div>
+      <div><dt>الحكم</dt><dd>WAIT حتى تنجح بوابة الأداء خارج العينة</dd></div>`;
+    card.dataset.discoveryEnriched = "true";
+  });
+}
+
+function enrichModelCards(payload) {
+  if (!payload || payload.status !== "READY") return;
+  enrichShockWaitCards(payload);
+  enrichTouchWaitCards(payload);
+}
+
+function installGridObservers() {
+  for (const id of ["shockHorizonGrid", "touchHorizonGrid"]) {
+    const grid = byId(id);
+    const observer = new MutationObserver(() => enrichModelCards(latestDiscovery));
+    observer.observe(grid, { childList: true });
+  }
+}
+
 function renderDiscovery(payload) {
   const ready = payload.status === "READY";
   byId("discoveryState").textContent = ready ? "READY — EMPIRICAL" : payload.status || "WAIT";
@@ -146,6 +203,7 @@ function renderDiscovery(payload) {
     : payload.reason || "لم يُنشأ التقرير بعد";
   if (!ready) return;
 
+  latestDiscovery = payload;
   byId("discoveryAnchors").textContent = number(payload.valid_anchor_count);
   byId("discoveryMaxHorizon").textContent = horizonLabel(payload.max_horizon_minutes);
   byId("discoveryStride").textContent = `${number(payload.anchor_stride_minutes)} دقيقة`;
@@ -157,6 +215,7 @@ function renderDiscovery(payload) {
   renderReturnDistribution(payload.return_distribution || {});
   renderExternalContext(payload.external_context_feature_status || {});
   renderHorizonTable(payload.horizons || {});
+  enrichModelCards(payload);
 }
 
 async function refreshLatestMarket() {
@@ -183,6 +242,7 @@ async function refreshDiscovery() {
   }
 }
 
+installGridObservers();
 refreshLatestMarket();
 refreshDiscovery();
 setInterval(refreshLatestMarket, 2_000);
