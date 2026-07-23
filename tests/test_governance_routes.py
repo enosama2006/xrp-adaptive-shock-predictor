@@ -1,12 +1,9 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
 from pathlib import Path
-from typing import Any
 
-from fastapi import FastAPI
-
+from xasp.governance_routes import GovernanceEvidenceReader
 from xasp.platform_api import create_app
 from xasp.platform_runtime import RuntimeConfig, RuntimePaths
 from xasp.platform_runtime_v2 import RealDataPlatformV2
@@ -25,20 +22,25 @@ def _paths(tmp_path: Path) -> RuntimePaths:
     )
 
 
-def _endpoint(app: FastAPI, path: str) -> Callable[..., Any]:
-    for route in app.routes:
-        if getattr(route, "path", None) == path:
-            return route.endpoint
-    raise AssertionError(f"route not found: {path}")
+def _reader(paths: RuntimePaths) -> GovernanceEvidenceReader:
+    return GovernanceEvidenceReader(
+        integrity_path=paths.reports.parent / "data_integrity.json",
+        expansion_path=paths.state.parent / "history_expansion_state.json",
+    )
 
 
-def test_governance_routes_wait_without_reports(tmp_path: Path) -> None:
-    platform = RealDataPlatformV2(_paths(tmp_path), RuntimeConfig(bootstrap_start_ms=1))
-    app = create_app(platform, web_root=Path("."))
+def test_governance_waits_without_reports_and_routes_are_published(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    reader = _reader(paths)
+    app = create_app(
+        RealDataPlatformV2(paths, RuntimeConfig(bootstrap_start_ms=1)),
+        web_root=Path("."),
+    )
 
-    integrity = _endpoint(app, "/api/reports/data-integrity")()
-    expansion = _endpoint(app, "/api/history-expansion")()
-    summary = _endpoint(app, "/api/governance")()
+    integrity = reader.integrity_payload()
+    expansion = reader.expansion_payload()
+    summary = reader.summary_payload()
+    openapi_paths = set(app.openapi()["paths"])
 
     assert integrity["status"] == "WAIT"
     assert integrity["reason"] == "no_data_integrity_report"
@@ -46,9 +48,12 @@ def test_governance_routes_wait_without_reports(tmp_path: Path) -> None:
     assert expansion["progress_fraction"] == 0.0
     assert summary["training_allowed_by_platform_policy"] is True
     assert summary["trading_promoted"] is False
+    assert "/api/reports/data-integrity" in openapi_paths
+    assert "/api/history-expansion" in openapi_paths
+    assert "/api/governance" in openapi_paths
 
 
-def test_governance_routes_expose_integrity_and_expansion_progress(tmp_path: Path) -> None:
+def test_governance_exposes_integrity_and_expansion_progress(tmp_path: Path) -> None:
     paths = _paths(tmp_path)
     paths.reports.parent.mkdir(parents=True, exist_ok=True)
     (paths.reports.parent / "data_integrity.json").write_text(
@@ -80,10 +85,8 @@ def test_governance_routes_expose_integrity_and_expansion_progress(tmp_path: Pat
         ),
         encoding="utf-8",
     )
-    platform = RealDataPlatformV2(paths, RuntimeConfig(bootstrap_start_ms=1))
-    app = create_app(platform, web_root=Path("."))
 
-    summary = _endpoint(app, "/api/governance")()
+    summary = _reader(paths).summary_payload()
 
     assert summary["data_integrity"]["status"] == "PASS"
     assert summary["data_integrity"]["dataset_fingerprint_sha256"] == "a" * 64
@@ -112,12 +115,8 @@ def test_completed_history_expansion_reports_full_progress(tmp_path: Path) -> No
         ),
         encoding="utf-8",
     )
-    app = create_app(
-        RealDataPlatformV2(paths, RuntimeConfig(bootstrap_start_ms=1)),
-        web_root=Path("."),
-    )
 
-    expansion = _endpoint(app, "/api/history-expansion")()
+    expansion = _reader(paths).expansion_payload()
 
     assert expansion["status"] == "READY"
     assert expansion["progress_fraction"] == 1.0
