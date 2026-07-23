@@ -59,6 +59,10 @@ def test_temporal_baseline_trains_when_directional_gate_passes() -> None:
     assert report.metrics["directional_high_confidence_empirical_precision"] >= 0.85
     assert report.metrics["probability_sum_max_error"] < 1e-9
     assert set(report.metrics["per_class"]) == {"UP_10", "DOWN_10", "NO_EVENT"}
+    walk_forward = report.metrics["walk_forward_support_audit"]
+    assert walk_forward["status"] == "PASS"
+    assert walk_forward["eligible_fold_count"] >= 2
+    assert len(walk_forward["folds"]) == 4
 
 
 def test_dominant_no_event_accuracy_cannot_pass_directional_gate() -> None:
@@ -81,7 +85,10 @@ def test_dominant_no_event_accuracy_cannot_pass_directional_gate() -> None:
 
     assert model is None
     assert report.status == "WAIT"
-    assert report.reason == "insufficient_directional_event_test_support"
+    assert report.reason == "insufficient_directional_support_across_untouched_periods"
+    walk_forward = report.metrics["walk_forward_support_audit"]
+    assert walk_forward["status"] == "WAIT"
+    assert walk_forward["eligible_fold_count"] == 0
 
 
 def test_ambiguous_and_incomplete_are_excluded() -> None:
