@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import typing
 
-
 QUANTILE_KEYS = ("median_minutes", "p75_minutes", "p90_minutes", "p95_minutes")
 
 
