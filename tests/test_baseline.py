@@ -85,7 +85,9 @@ def test_dominant_no_event_accuracy_cannot_pass_directional_gate() -> None:
 
     assert model is None
     assert report.status == "WAIT"
-    assert report.reason == "insufficient_directional_support_across_untouched_periods"
+    assert report.reason == (
+        "insufficient_independent_directional_events_across_untouched_periods"
+    )
     walk_forward = report.metrics["walk_forward_support_audit"]
     assert walk_forward["status"] == "WAIT"
     assert walk_forward["eligible_fold_count"] == 0
