@@ -32,12 +32,7 @@ echo [XASP] Running integration checks before server startup...
 if errorlevel 1 goto :verification_error
 "%PYTHON%" -m pytest -q
 if errorlevel 1 goto :verification_error
-"%PYTHON%" -c "from xasp.data_integrity import audit_price_store; from xasp.platform_api import create_app; from xasp.platform_runtime_v2 import RealDataPlatformV2; from xasp.price_store import PartitionedPriceStore; print('[XASP] Import smoke check passed')"
-if errorlevel 1 goto :verification_error
-
-echo.
-echo [XASP] Auditing existing observed price files...
-"%PYTHON%" -m xasp.data_integrity --root data\prices --legacy data\prices.parquet --output reports\data_integrity.json --minimum-coverage 0.995 --fail-on-error
+"%PYTHON%" -c "from xasp.data_integrity import audit_price_store; from xasp.history_expansion import expand_history; from xasp.platform_api import create_app; from xasp.platform_runtime_v2 import RealDataPlatformV2; from xasp.price_store import PartitionedPriceStore; print('[XASP] Import smoke check passed')"
 if errorlevel 1 goto :verification_error
 
 REM XASP_HISTORY_DAYS controls the requested observed window. A manually supplied
@@ -46,6 +41,19 @@ if not defined XASP_BOOTSTRAP_START_MS (
     for /f "usebackq delims=" %%i in (`"%PYTHON%" scripts\compute_bootstrap_ms.py --days %XASP_HISTORY_DAYS%`) do set "XASP_BOOTSTRAP_START_MS=%%i"
 )
 if not defined XASP_BOOTSTRAP_START_MS goto :error
+
+if /I "%XASP_EXPAND_HISTORY%"=="1" (
+    echo.
+    echo [XASP] Expanding observed history toward %XASP_BOOTSTRAP_START_MS%...
+    echo [XASP] Progress is saved in data\history_expansion_state.json.
+    "%PYTHON%" -m xasp.history_expansion --target-start-ms %XASP_BOOTSTRAP_START_MS% --symbol XRPUSDT --root data\prices --legacy data\prices.parquet --state data\history_expansion_state.json --checkpoint-rows 10000 --fail-on-incomplete
+    if errorlevel 1 goto :verification_error
+)
+
+echo.
+echo [XASP] Auditing existing observed price files...
+"%PYTHON%" -m xasp.data_integrity --root data\prices --legacy data\prices.parquet --output reports\data_integrity.json --minimum-coverage 0.995 --fail-on-error
+if errorlevel 1 goto :verification_error
 
 echo.
 echo [XASP] Starting real-data platform...
@@ -66,7 +74,7 @@ goto :eof
 :verification_error
 echo.
 echo [XASP] Verification failed. The server was NOT started.
-echo [XASP] Review the failing test, import, or data-integrity error above.
+echo [XASP] Review the failing test, import, historical-expansion, or data-integrity error above.
 pause
 exit /b 2
 
