@@ -44,7 +44,7 @@ def _history_progress(payload: dict[str, Any]) -> float:
 class GovernanceEvidenceReader:
     integrity_path: Path
     expansion_path: Path
-    discovery_path: Path
+    discovery_path: Path = Path("reports/first_passage_discovery.json")
 
     @classmethod
     def from_platform(cls, platform: RealDataPlatformV2) -> GovernanceEvidenceReader:
