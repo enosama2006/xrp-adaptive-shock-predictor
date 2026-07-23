@@ -57,7 +57,7 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
 
     app = FastAPI(
         title="XASP Real Data Platform",
-        version="1.1.2",
+        version="1.2.0",
         lifespan=lifespan,
     )
 
@@ -94,14 +94,15 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
         reasons = {
             key: str(report.get("reason", "unknown")) for key, report in horizons.items()
         }
+        walk_forward = {
+            key: report.get("metrics", {}).get("walk_forward_support_audit")
+            for key, report in horizons.items()
+            if report.get("metrics", {}).get("walk_forward_support_audit") is not None
+        }
         meta = {
-            "status": (
-                "CURRENT"
-                if current
-                else "STALE" if horizons else "WAIT"
-            ),
+            "status": "CURRENT" if current else "STALE" if horizons else "WAIT",
             "reason": (
-                "report_matches_current_directional_gate"
+                "report_matches_current_walk_forward_directional_gate"
                 if current
                 else "report_was_generated_by_an_older_gate_or_training_is_still_running"
             ),
@@ -110,6 +111,7 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
             "report_gate_methodology_versions": versions,
             "horizon_statuses": statuses,
             "horizon_reasons": reasons,
+            "walk_forward_support_by_horizon": walk_forward,
             "report_updated_at_ms": int(path.stat().st_mtime * 1000),
             "model_available": platform._bundle is not None,
             "runtime_state": platform.status.state,
@@ -151,6 +153,7 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
             touch_training_rows = max(horizon_rows)
         if touch_bundle is not None:
             touch_training_rows = int(touch_bundle.get("training_final_rows", 0))
+        price_stats = platform.price_store.stats()
 
         return {
             "collection": {
@@ -159,6 +162,9 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
                 "prediction_cadence_seconds": platform.config.prediction_cadence_ms // 1000,
                 "bootstrap_start_ms": platform.config.bootstrap_start_ms,
                 "checkpoint_rows": platform.config.checkpoint_rows,
+                "price_rows": price_stats.total_rows,
+                "price_partition_count": price_stats.partition_count,
+                "price_partition_granularity": "UTC_MONTH",
                 "retraining_policy": "daily after 5,760 newly finalized horizon rows",
                 "source": "Binance public observed market data",
             },
@@ -197,7 +203,7 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
                 ),
                 "available": touch_bundle is not None,
                 "availability_reason": (
-                    "directional_event_gate_passed"
+                    "walk_forward_directional_event_gate_passed"
                     if touch_bundle is not None
                     else platform.status.reason
                 ),
@@ -212,9 +218,10 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
                 "training_report_current": bool(touch_meta.get("is_current", False)),
                 "training_report_status": touch_meta.get("status", "WAIT"),
                 "gate": (
-                    "85% empirical precision for high-confidence UP_10/DOWN_10 "
-                    "predictions with minimum support per direction on untouched temporal data; "
-                    "NO_EVENT accuracy cannot pass the gate"
+                    "Multiple purged walk-forward test periods must contain enough UP_10 and "
+                    "DOWN_10 events; the latest untouched temporal test must then achieve 85% "
+                    "empirical precision for high-confidence directional predictions. "
+                    "NO_EVENT accuracy cannot pass the gate."
                 ),
                 "endpoint": "/api/models/first-touch/latest",
                 "training_report_endpoint": "/api/reports/training/first-touch",
@@ -225,8 +232,11 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
     def health() -> dict[str, Any]:
         paths = platform.paths
         report_paths = ProductionReportPaths()
+        price_stats = platform.price_store.stats()
         storage = {
-            "prices": paths.prices.exists(),
+            "prices": platform.price_store.exists,
+            "price_partitions": price_stats.partition_count > 0,
+            "legacy_price_file": paths.prices.exists(),
             "anchors": paths.anchors.exists(),
             "features": paths.features.exists(),
             "state": paths.state.exists(),
@@ -249,6 +259,7 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
             "lifecycle_progress": platform.status.lifecycle_progress,
             "lifecycle_message": platform.status.lifecycle_message,
             "data_available": storage["prices"] and storage["features"],
+            "price_store": asdict(price_stats),
             "first_touch_model_available": touch_ready,
             "adaptive_shock_model_available": shock_ready,
             "first_touch_gate_methodology_version": FIRST_TOUCH_GATE_VERSION,
@@ -271,6 +282,19 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
             "85% is an empirical out-of-sample gate, not a guarantee of future correctness"
         )
         return payload
+
+    @app.get("/api/storage/prices")
+    def price_storage() -> dict[str, Any]:
+        return {
+            "root": str(platform.price_store.root),
+            "legacy_path": (
+                None
+                if platform.price_store.legacy_path is None
+                else str(platform.price_store.legacy_path)
+            ),
+            "legacy_migration_pending": platform.price_store.needs_legacy_migration,
+            "stats": asdict(platform.price_store.stats()),
+        }
 
     @app.get("/api/models")
     def models() -> dict[str, Any]:
