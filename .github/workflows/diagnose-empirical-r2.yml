@@ -1,0 +1,70 @@
+name: XASP Empirical Diagnostics R2
+
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  diagnose:
+    if: contains(github.event.issue.title, '[XASP-DIAG-1.6.0-R2]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+      - name: Diagnose and comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_URL: ${{ github.event.issue.html_url }}
+          PYVER: ${{ matrix.python-version }}
+        shell: bash
+        run: |
+          set +e
+          {
+            echo "Python $PYVER"
+            echo '## Compile'
+            python -m compileall -q src tests scripts
+            echo "status=$?"
+            echo
+            echo '## Ruff'
+            ruff check src tests --output-format concise
+            echo "status=$?"
+            echo
+            echo '## mypy'
+            mypy --python-version "$PYVER" src
+            echo "status=$?"
+            echo
+            echo '## pytest'
+            pytest -q
+            echo "status=$?"
+            echo
+            echo '## JavaScript'
+            node --check app.js
+            node --check governance.js
+            node --check discovery.js
+            echo "status=$?"
+          } > diagnostic.txt 2>&1
+          {
+            echo "### XASP diagnostics — Python $PYVER"
+            echo '```text'
+            head -c 60000 diagnostic.txt
+            echo
+            echo '```'
+          } > comment.md
+          gh issue comment "$ISSUE_URL" --body-file comment.md
+          exit 0
