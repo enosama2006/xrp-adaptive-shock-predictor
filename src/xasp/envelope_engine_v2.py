@@ -6,7 +6,7 @@ import json
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import joblib
 import pandas as pd
@@ -224,7 +224,8 @@ class EnvelopeEngineV2:
             return []
         latest = int(frame["anchor_timestamp_ms"].max())
         subset = frame[frame["anchor_timestamp_ms"] == latest]
-        return subset.where(subset.notna(), None).to_dict(orient="records")
+        records = subset.where(subset.notna(), None).to_dict(orient="records")
+        return cast(list[dict[str, Any]], records)
 
 
 __all__ = ["EnvelopeEngineV2", "EnvelopePaths", "HORIZONS"]

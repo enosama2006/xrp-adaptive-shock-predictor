@@ -10,7 +10,7 @@ from contextlib import asynccontextmanager, suppress
 from dataclasses import asdict
 from pathlib import Path
 from threading import Lock
-from typing import Any
+from typing import Any, cast
 
 import uvicorn
 from fastapi import FastAPI
@@ -26,6 +26,24 @@ from .platform_runtime_v2 import RealDataPlatformV2, RuntimeConfig, RuntimePaths
 from .production_report_v2 import ProductionReportPaths
 
 HORIZON_KEYS = RESEARCH_HORIZON_KEYS
+
+
+def _record_list(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        raise ValueError("record payload must be a list")
+    records: list[dict[str, Any]] = []
+    for item in value:
+        if not isinstance(item, dict):
+            raise ValueError("record payload entries must be objects")
+        records.append(cast(dict[str, Any], item))
+    return records
+
+
+def _json_object(path: Path) -> dict[str, Any]:
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError(f"JSON report must contain an object: {path}")
+    return cast(dict[str, Any], value)
 
 
 def _bundle_horizons(bundle: dict[str, Any] | None) -> list[int]:
@@ -146,7 +164,7 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
         active_version = str(platform._bundle["model_version"])
         return frame[frame["model_version"] == active_version].copy()
 
-    def active_envelope_predictions() -> Any:
+    def active_envelope_predictions() -> list[dict[str, Any]]:
         if platform.envelope.bundle is None or not platform.envelope.paths.predictions.exists():
             return []
         frame = platform._active_envelope_predictions()
@@ -154,7 +172,9 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
             return []
         latest_anchor = int(frame["anchor_timestamp_ms"].max())
         subset = frame[frame["anchor_timestamp_ms"] == latest_anchor]
-        return subset.where(subset.notna(), None).to_dict(orient="records")
+        return _record_list(
+            subset.where(subset.notna(), None).to_dict(orient="records")
+        )
 
     def model_catalog() -> dict[str, Any]:
         shock_bundle = platform.envelope.bundle
@@ -368,7 +388,9 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
             return []
         latest_anchor = int(frame["anchor_timestamp_ms"].max())
         subset = frame[frame["anchor_timestamp_ms"] == latest_anchor]
-        return subset.where(subset.notna(), None).to_dict(orient="records")
+        return _record_list(
+            subset.where(subset.notna(), None).to_dict(orient="records")
+        )
 
     @app.get("/api/models/adaptive-shock/latest")
     @app.get("/api/envelope/latest")
@@ -383,7 +405,7 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
         frame = frame.sort_values("created_at_ms", ascending=False).head(
             max(1, min(limit, 1000))
         )
-        return frame.where(frame.notna(), None).to_dict(orient="records")
+        return _record_list(frame.where(frame.notna(), None).to_dict(orient="records"))
 
     @app.get("/api/reports/training/first-touch")
     def first_touch_training_report() -> dict[str, Any]:
@@ -394,14 +416,14 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
         path = platform.envelope.paths.report
         if not path.exists():
             return {"status": "WAIT", "reason": "no_adaptive_shock_training_report"}
-        return json.loads(path.read_text(encoding="utf-8"))
+        return _json_object(path)
 
     @app.get("/api/reports/production")
     def production_report() -> dict[str, Any]:
         path = ProductionReportPaths().latest_json
         if not path.exists():
             return platform.generate_production_report()
-        return json.loads(path.read_text(encoding="utf-8"))
+        return _json_object(path)
 
     @app.post("/api/reports/production/refresh")
     def refresh_production_report() -> dict[str, Any]:

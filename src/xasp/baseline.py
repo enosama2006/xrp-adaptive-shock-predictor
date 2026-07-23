@@ -35,7 +35,7 @@ from .walk_forward import (
 try:
     from sklearn.frozen import FrozenEstimator
 except ImportError:  # scikit-learn < 1.6
-    FrozenEstimator = None  # type: ignore[assignment,misc]
+    FrozenEstimator = None
 
 ALLOWED_LABELS = ("UP_10", "DOWN_10", "NO_EVENT")
 EVENT_LABELS = ("UP_10", "DOWN_10")
