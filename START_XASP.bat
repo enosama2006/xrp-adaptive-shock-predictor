@@ -32,7 +32,12 @@ echo [XASP] Running integration checks before server startup...
 if errorlevel 1 goto :verification_error
 "%PYTHON%" -m pytest -q
 if errorlevel 1 goto :verification_error
-"%PYTHON%" -c "from xasp.platform_api import create_app; from xasp.platform_runtime_v2 import RealDataPlatformV2; from xasp.price_store import PartitionedPriceStore; print('[XASP] Import smoke check passed')"
+"%PYTHON%" -c "from xasp.data_integrity import audit_price_store; from xasp.platform_api import create_app; from xasp.platform_runtime_v2 import RealDataPlatformV2; from xasp.price_store import PartitionedPriceStore; print('[XASP] Import smoke check passed')"
+if errorlevel 1 goto :verification_error
+
+echo.
+echo [XASP] Auditing existing observed price files...
+"%PYTHON%" -m xasp.data_integrity --root data\prices --legacy data\prices.parquet --output reports\data_integrity.json --minimum-coverage 0.995 --fail-on-error
 if errorlevel 1 goto :verification_error
 
 REM XASP_HISTORY_DAYS controls the requested observed window. A manually supplied
@@ -47,6 +52,7 @@ echo [XASP] Starting real-data platform...
 echo [XASP] URL: http://%HOST%:%PORT%
 echo [XASP] Requested observed history: %XASP_HISTORY_DAYS% days from %XASP_BOOTSTRAP_START_MS%
 echo [XASP] Price storage: restart-safe UTC monthly partitions; legacy file is preserved.
+echo [XASP] Data integrity report: reports\data_integrity.json
 echo [XASP] The server will continue collecting new observed data every minute.
 echo [XASP] Press Ctrl+C to stop the server.
 echo.
@@ -60,7 +66,7 @@ goto :eof
 :verification_error
 echo.
 echo [XASP] Verification failed. The server was NOT started.
-echo [XASP] Review the failing test or import error above.
+echo [XASP] Review the failing test, import, or data-integrity error above.
 pause
 exit /b 2
 
