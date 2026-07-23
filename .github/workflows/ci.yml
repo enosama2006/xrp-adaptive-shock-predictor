@@ -67,12 +67,16 @@ jobs:
         run: pytest --cov=xasp --cov-report=term-missing
 
       - name: Validate browser JavaScript syntax
-        run: node --check app.js
+        run: |
+          node --check app.js
+          node --check governance.js
+          node --check discovery.js
 
       - name: Platform import smoke check
         run: |
           python - <<'PY'
           from xasp.feature_registry import select_model_feature_names
+          from xasp.first_passage_discovery import build_first_passage_discovery
           from xasp.first_touch_v5 import train_first_touch_v5
           from xasp.future_envelope import build_future_envelope_targets
           from xasp.horizons import RESEARCH_HORIZONS_MINUTES
@@ -83,5 +87,5 @@ jobs:
           from xasp.price_store import PartitionedPriceStore
 
           assert RESEARCH_HORIZONS_MINUTES == (15, 30, 45, 60, 120, 180, 240, 480)
-          print("XASP platform imports and eight-horizon contract passed")
+          print("XASP platform imports and empirical discovery contract passed")
           PY
