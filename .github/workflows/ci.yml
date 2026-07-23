@@ -83,8 +83,24 @@ jobs:
         shell: bash
         run: test "$(cat 'mypy-${{ matrix.python-version }}.status')" = "0"
 
-      - name: Tests
-        run: pytest --cov=xasp --cov-report=term-missing
+      - name: Capture test report
+        shell: bash
+        run: |
+          set +e
+          pytest --cov=xasp --cov-report=term-missing > "pytest-${{ matrix.python-version }}.txt" 2>&1
+          status=$?
+          cat "pytest-${{ matrix.python-version }}.txt"
+          echo "$status" > "pytest-${{ matrix.python-version }}.status"
+          exit 0
+
+      - name: Upload test report
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-${{ matrix.python-version }}
+          path: |
+            pytest-${{ matrix.python-version }}.txt
+            pytest-${{ matrix.python-version }}.status
+          if-no-files-found: error
 
       - name: Validate browser JavaScript syntax
         run: |
@@ -111,3 +127,7 @@ jobs:
           assert RESEARCH_HORIZONS_MINUTES == (15, 30, 45, 60, 120, 180, 240, 480)
           print("XASP platform imports, empirical discovery, and model lab contract passed")
           PY
+
+      - name: Enforce clean tests
+        shell: bash
+        run: test "$(cat 'pytest-${{ matrix.python-version }}.status')" = "0"
