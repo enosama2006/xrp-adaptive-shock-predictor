@@ -75,19 +75,10 @@ class RealDataPlatformV2(ExtendedHorizonRealDataPlatform):
             self._save_status()
 
     def sync_real_data(self, end_ms: int | None = None) -> None:
+        """Sync candles and anchors; defer the large Model A target rebuild until training."""
+
         super().sync_real_data(end_ms)
-        self._set_lifecycle(
-            "BUILD_TARGETS_A",
-            progress=0.0,
-            message="building_observed_future_excursion_targets_through_8h",
-        )
-        self.envelope.rebuild_targets(self._load_prices())
-        self._refresh_research_state(save=False)
-        self._set_lifecycle(
-            "TARGETS_A_READY",
-            progress=1.0,
-            message="model_a_extended_horizon_targets_ready",
-        )
+        self._refresh_research_state()
 
     def train_if_due(self, force: bool = False) -> bool:
         first_touch_trained = super().train_if_due(force=force)
@@ -117,12 +108,22 @@ class RealDataPlatformV2(ExtendedHorizonRealDataPlatform):
 
         had_envelope_champion = self.envelope.bundle is not None
         self._set_lifecycle(
+            "BUILD_TARGETS_A",
+            progress=0.0,
+            message="building_observed_future_excursion_targets_through_8h",
+        )
+        features = pd.read_parquet(self.paths.features)
+        targets = self.envelope.rebuild_targets(self._load_prices())
+        self._set_lifecycle(
+            "TARGETS_A_READY",
+            progress=1.0,
+            message="model_a_extended_horizon_targets_ready",
+        )
+        self._set_lifecycle(
             "TRAIN_MODEL_A",
             progress=0.0,
             message="training_future_excursion_independent_horizon_challengers",
         )
-        features = pd.read_parquet(self.paths.features)
-        targets = self.envelope.rebuild_targets(self._load_prices())
         feature_names = self._feature_names(features)
         envelope_trained = self.envelope.train(
             targets,
