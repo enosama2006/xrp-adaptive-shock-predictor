@@ -28,15 +28,18 @@ class DatasetState:
     def validate(self) -> None:
         if self.schema_version != 1:
             raise ValueError(f"unsupported dataset state schema: {self.schema_version}")
-        for name, value in self.raw_watermarks_ms.items():
-            if not name or value < 0:
-                raise ValueError("raw watermarks require non-empty names and non-negative values")
-        for value in (
+        for source_name, raw_watermark in self.raw_watermarks_ms.items():
+            if not source_name or raw_watermark < 0:
+                raise ValueError(
+                    "raw watermarks require non-empty names and non-negative values"
+                )
+        optional_watermarks = (
             self.feature_watermark_ms,
             self.finalized_label_watermark_ms,
             self.last_training_cutoff_ms,
-        ):
-            if value is not None and value < 0:
+        )
+        for optional_watermark in optional_watermarks:
+            if optional_watermark is not None and optional_watermark < 0:
                 raise ValueError("watermarks must be non-negative")
         if self.pending_label_count < 0 or self.finalized_label_count < 0:
             raise ValueError("label counters must be non-negative")
