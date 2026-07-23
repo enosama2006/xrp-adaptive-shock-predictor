@@ -27,7 +27,7 @@ def _paths(tmp_path: Path) -> RuntimePaths:
 
 def _endpoint(app: FastAPI, path: str) -> Callable[..., Any]:
     for route in app.routes:
-        if route.path == path:
+        if getattr(route, "path", None) == path:
             return route.endpoint
     raise AssertionError(f"route not found: {path}")
 
