@@ -56,3 +56,14 @@ ignore = ["E501", "B008"]
 python_version = "3.11"
 strict = true
 packages = ["xasp"]
+
+[[tool.mypy.overrides]]
+module = [
+  "pandas",
+  "pandas.*",
+  "sklearn",
+  "sklearn.*",
+  "joblib",
+  "joblib.*",
+]
+ignore_missing_imports = true
