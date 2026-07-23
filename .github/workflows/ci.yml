@@ -83,14 +83,31 @@ jobs:
         shell: bash
         run: test "$(cat 'mypy-${{ matrix.python-version }}.status')" = "0"
 
-      - name: Tests
-        run: pytest --cov=xasp --cov-report=term-missing
+      - name: Capture test report
+        shell: bash
+        run: |
+          set +e
+          pytest --cov=xasp --cov-report=term-missing > "pytest-${{ matrix.python-version }}.txt" 2>&1
+          status=$?
+          cat "pytest-${{ matrix.python-version }}.txt"
+          echo "$status" > "pytest-${{ matrix.python-version }}.status"
+          exit 0
+
+      - name: Upload test report
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-${{ matrix.python-version }}
+          path: |
+            pytest-${{ matrix.python-version }}.txt
+            pytest-${{ matrix.python-version }}.status
+          if-no-files-found: error
 
       - name: Validate browser JavaScript syntax
         run: |
           node --check app.js
           node --check governance.js
           node --check discovery.js
+          node --check lab.js
 
       - name: Platform import smoke check
         run: |
@@ -100,6 +117,7 @@ jobs:
           from xasp.first_touch_v5 import train_first_touch_v5
           from xasp.future_envelope import build_future_envelope_targets
           from xasp.horizons import RESEARCH_HORIZONS_MINUTES
+          from xasp.model_lab import ModelLabService
           from xasp.pipeline import PipelineProgress
           from xasp.platform_api import create_app
           from xasp.platform_runtime import PlatformStatus
@@ -107,5 +125,9 @@ jobs:
           from xasp.price_store import PartitionedPriceStore
 
           assert RESEARCH_HORIZONS_MINUTES == (15, 30, 45, 60, 120, 180, 240, 480)
-          print("XASP platform imports and empirical discovery contract passed")
+          print("XASP platform imports, empirical discovery, and model lab contract passed")
           PY
+
+      - name: Enforce clean tests
+        shell: bash
+        run: test "$(cat 'pytest-${{ matrix.python-version }}.status')" = "0"
