@@ -13,6 +13,7 @@ from fastapi.responses import FileResponse
 
 from .history_expansion import MINUTE_MS
 from .platform_runtime_v2 import RealDataPlatformV2
+from .window_selection import select_candidate_windows
 
 
 def _json_object(path: Path) -> dict[str, Any]:
@@ -97,8 +98,14 @@ class GovernanceEvidenceReader:
                 "status": "WAIT",
                 "reason": "no_first_passage_discovery_report",
                 "report_path": str(self.discovery_path),
+                "window_selection": {
+                    "status": "WAIT",
+                    "reason": "first_passage_discovery_not_ready",
+                    "automatic_model_reconfiguration": False,
+                },
             }
         payload = _json_object(self.discovery_path)
+        payload["window_selection"] = select_candidate_windows(payload)
         payload["report_path"] = str(self.discovery_path)
         payload["report_updated_at_ms"] = int(
             self.discovery_path.stat().st_mtime * 1000
