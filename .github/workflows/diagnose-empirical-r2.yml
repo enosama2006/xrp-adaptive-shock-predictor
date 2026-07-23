@@ -1,4 +1,4 @@
-name: XASP Empirical Diagnostics R2
+name: XASP Empirical Diagnostics Final
 
 on:
   issues:
@@ -10,31 +10,62 @@ permissions:
 
 jobs:
   diagnose:
-    if: contains(github.event.issue.title, '[XASP-DIAG-1.6.0-R3]')
+    if: contains(github.event.issue.title, '[XASP-DIAG-1.6.0-FINAL]')
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: ${{ matrix.python-version }}
           cache: pip
       - name: Install
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev]"
-      - name: Comment Ruff fix diff
+      - name: Verify and comment
         env:
           GH_TOKEN: ${{ github.token }}
           ISSUE_URL: ${{ github.event.issue.html_url }}
+          PYVER: ${{ matrix.python-version }}
         shell: bash
         run: |
           set +e
-          ruff check src/xasp/window_selection.py --fix --diff > diagnostic.txt 2>&1
+          overall=0
           {
-            echo '### Ruff proposed fix'
-            echo '```diff'
-            cat diagnostic.txt
+            echo "Python $PYVER"
+            echo '## Compile'
+            python -m compileall -q src tests scripts
+            code=$?; echo "status=$code"; test $code -eq 0 || overall=1
+            echo
+            echo '## Ruff'
+            ruff check src tests --output-format concise
+            code=$?; echo "status=$code"; test $code -eq 0 || overall=1
+            echo
+            echo '## mypy'
+            mypy --python-version "$PYVER" src
+            code=$?; echo "status=$code"; test $code -eq 0 || overall=1
+            echo
+            echo '## pytest'
+            pytest -q
+            code=$?; echo "status=$code"; test $code -eq 0 || overall=1
+            echo
+            echo '## JavaScript'
+            node --check app.js
+            node --check governance.js
+            node --check discovery.js
+            code=$?; echo "status=$code"; test $code -eq 0 || overall=1
+            echo
+            echo "OVERALL_STATUS=$overall"
+          } > diagnostic.txt 2>&1
+          {
+            echo "### XASP final diagnostics — Python $PYVER"
+            echo '```text'
+            head -c 60000 diagnostic.txt
             echo
             echo '```'
           } > comment.md
