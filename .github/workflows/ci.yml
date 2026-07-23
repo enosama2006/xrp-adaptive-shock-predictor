@@ -35,7 +35,7 @@ jobs:
 
       - name: Package checked-out source
         shell: bash
-        run: tar --exclude=.git -czf xasp-source.tgz .
+        run: git archive --format=tar.gz --output=xasp-source.tgz HEAD
 
       - name: Upload diagnostic bundle
         uses: actions/upload-artifact@v4
