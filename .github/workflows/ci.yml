@@ -43,7 +43,8 @@ jobs:
         shell: bash
         run: |
           set +e
-          mypy src > "mypy-${{ matrix.python-version }}.txt" 2>&1
+          mypy --python-version "${{ matrix.python-version }}" src \
+            > "mypy-${{ matrix.python-version }}.txt" 2>&1
           status=$?
           cat "mypy-${{ matrix.python-version }}.txt"
           echo "$status" > "mypy-${{ matrix.python-version }}.status"
