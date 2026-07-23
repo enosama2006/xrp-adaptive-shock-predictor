@@ -6,7 +6,8 @@ on:
 
 permissions:
   contents: read
-\jobs:
+
+jobs:
   mypy:
     runs-on: ubuntu-latest
     timeout-minutes: 12
