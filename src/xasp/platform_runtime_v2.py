@@ -182,7 +182,7 @@ class RealDataPlatformV2(RealDataPlatform):
         )
         ledger = self._active_first_touch_ledger()
         envelope_predictions = self._active_envelope_predictions()
-        prices = self._load_prices() if self.paths.prices.exists() else pd.DataFrame()
+        prices = self._load_prices() if self.price_store.exists else pd.DataFrame()
         report = build_production_report(
             ledger=ledger,
             envelope_predictions=envelope_predictions,
