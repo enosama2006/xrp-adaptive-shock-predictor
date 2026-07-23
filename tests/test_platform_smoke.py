@@ -53,6 +53,8 @@ def test_platform_wires_routes_without_network_or_market_fabrication(tmp_path: P
     assert "/api/governance" in route_paths
     assert "/api/reports/data-integrity" in route_paths
     assert "/api/history-expansion" in route_paths
+    assert "/api/research/first-passage" in route_paths
+    assert "/api/market/latest" in route_paths
     assert "/api/models" in route_paths
     assert "/api/models/first-touch/latest" in route_paths
     assert "/api/models/adaptive-shock/latest" in route_paths
@@ -67,6 +69,14 @@ def test_platform_wires_routes_without_network_or_market_fabrication(tmp_path: P
     assert horizon_payload["horizons_minutes"] == list(RESEARCH_HORIZONS_MINUTES)
     assert horizon_payload["independent_gates"] is True
     assert horizon_payload["trading_promoted"] is False
+
+    discovery_payload = _endpoint(app, "/api/research/first-passage")()
+    assert discovery_payload["status"] == "WAIT"
+    assert discovery_payload["reason"] == "no_first_passage_discovery_report"
+
+    market_payload = _endpoint(app, "/api/market/latest")()
+    assert market_payload["status"] == "WAIT"
+    assert market_payload["reason"] == "no_observed_price_rows"
 
 
 def test_invalidated_first_touch_rows_are_hidden_from_public_ledger(tmp_path: Path) -> None:
@@ -127,3 +137,4 @@ def test_windows_launcher_is_pinned_to_requested_port() -> None:
     assert "pytest" in launcher
     assert "compileall" in launcher
     assert "xasp.platform_api" in launcher
+    assert "xasp.first_passage_discovery" in launcher
