@@ -9,17 +9,18 @@ from typing import Any
 import pandas as pd
 
 from .anchor_dataset import AnchorDatasetStore
-from .envelope_engine import EnvelopeEngine, EnvelopePaths
-from .platform_runtime import PlatformStatus, RealDataPlatform, RuntimeConfig, RuntimePaths
-from .production_report import build_production_report, save_production_report
+from .envelope_engine_v2 import EnvelopeEngineV2, EnvelopePaths, HORIZONS
+from .extended_runtime import ExtendedHorizonRealDataPlatform
+from .platform_runtime import PlatformStatus, RuntimeConfig, RuntimePaths
+from .production_report_v2 import build_production_report, save_production_report
 
 
-class RealDataPlatformV2(RealDataPlatform):
-    """Extend first-touch learning with an independent future-excursion learner."""
+class RealDataPlatformV2(ExtendedHorizonRealDataPlatform):
+    """Run independent Model A and Model B horizons through eight hours."""
 
     def __init__(self, paths: RuntimePaths, config: RuntimeConfig) -> None:
         super().__init__(paths, config)
-        self.envelope = EnvelopeEngine(
+        self.envelope = EnvelopeEngineV2(
             EnvelopePaths(
                 targets=paths.prices.parent / "future_envelopes.parquet",
                 model=paths.models.parent / "envelope_champion.joblib",
@@ -35,18 +36,33 @@ class RealDataPlatformV2(RealDataPlatform):
             )
         self._refresh_research_state(save=False)
 
+    @staticmethod
+    def _available_horizons(bundle: dict[str, Any] | None) -> set[int]:
+        if bundle is None:
+            return set()
+        return {int(value) for value in bundle.get("models", {})}
+
     def _refresh_research_state(self, *, save: bool = True) -> None:
-        touch_ready = self._bundle is not None
-        envelope_ready = self.envelope.bundle is not None
-        if touch_ready and envelope_ready:
+        configured = set(HORIZONS)
+        touch_horizons = self._available_horizons(self._bundle)
+        envelope_horizons = self._available_horizons(self.envelope.bundle)
+        touch_any = bool(touch_horizons)
+        envelope_any = bool(envelope_horizons)
+        touch_all = touch_horizons == configured
+        envelope_all = envelope_horizons == configured
+
+        if touch_all and envelope_all:
             self.status.state = "RESEARCH_ONLY"
-            self.status.reason = "dual_models_research_monitoring_only"
-        elif envelope_ready:
+            self.status.reason = "dual_models_all_horizons_research_monitoring_only"
+        elif touch_any and envelope_any:
             self.status.state = "PARTIAL_RESEARCH"
-            self.status.reason = "model_a_ready_model_b_directional_gate_wait"
-        elif touch_ready:
+            self.status.reason = "dual_models_some_independent_horizons_ready_others_wait"
+        elif envelope_any:
             self.status.state = "PARTIAL_RESEARCH"
-            self.status.reason = "model_b_ready_model_a_evidence_gate_wait"
+            self.status.reason = "model_a_some_horizons_ready_model_b_wait"
+        elif touch_any:
+            self.status.state = "PARTIAL_RESEARCH"
+            self.status.reason = "model_b_some_horizons_ready_model_a_wait"
         else:
             self.status.state = "WAIT"
             if self.status.reason in {
@@ -54,7 +70,7 @@ class RealDataPlatformV2(RealDataPlatform):
                 "real_data_synced_model_gate_pending",
                 "real_data_synced_directional_model_gate_pending",
             }:
-                self.status.reason = "both_model_evidence_gates_pending"
+                self.status.reason = "both_model_independent_horizon_gates_pending"
         if save:
             self._save_status()
 
@@ -63,21 +79,33 @@ class RealDataPlatformV2(RealDataPlatform):
         self._set_lifecycle(
             "BUILD_TARGETS_A",
             progress=0.0,
-            message="building_observed_future_excursion_targets",
+            message="building_observed_future_excursion_targets_through_8h",
         )
         self.envelope.rebuild_targets(self._load_prices())
         self._refresh_research_state(save=False)
         self._set_lifecycle(
             "TARGETS_A_READY",
             progress=1.0,
-            message="model_a_targets_ready_for_training_gate",
+            message="model_a_extended_horizon_targets_ready",
         )
 
     def train_if_due(self, force: bool = False) -> bool:
         first_touch_trained = super().train_if_due(force=force)
         anchors = AnchorDatasetStore(self.paths.anchors).load()
         final_count = int((anchors["status"] == "FINAL").sum()) if not anchors.empty else 0
-        enough_rows = final_count >= self.config.minimum_final_rows_per_horizon * 4
+        per_horizon_counts = (
+            anchors[anchors["status"] == "FINAL"]
+            .groupby("horizon_minutes")
+            .size()
+            .to_dict()
+            if not anchors.empty
+            else {}
+        )
+        enough_rows = any(
+            int(per_horizon_counts.get(horizon, 0))
+            >= self.config.minimum_final_rows_per_horizon
+            for horizon in HORIZONS
+        )
         enough_new_rows = (
             final_count
             >= self._last_envelope_training_final_rows
@@ -91,7 +119,7 @@ class RealDataPlatformV2(RealDataPlatform):
         self._set_lifecycle(
             "TRAIN_MODEL_A",
             progress=0.0,
-            message="training_future_excursion_challenger",
+            message="training_future_excursion_independent_horizon_challengers",
         )
         features = pd.read_parquet(self.paths.features)
         targets = self.envelope.rebuild_targets(self._load_prices())
@@ -110,9 +138,9 @@ class RealDataPlatformV2(RealDataPlatform):
                 "MODEL_A_WAIT",
                 progress=1.0,
                 message=(
-                    "model_a_challenger_rejected_champion_retained"
+                    "model_a_challengers_rejected_existing_horizons_retained"
                     if had_envelope_champion
-                    else "model_a_evidence_gate_failed_or_insufficient"
+                    else "model_a_all_horizons_wait"
                 ),
             )
         else:
@@ -120,7 +148,7 @@ class RealDataPlatformV2(RealDataPlatform):
             self._set_lifecycle(
                 "MODEL_A_RESEARCH_READY",
                 progress=1.0,
-                message="model_a_empirical_gate_passed",
+                message="model_a_independent_horizon_gates_evaluated",
             )
         return first_touch_trained or envelope_trained
 
@@ -138,7 +166,7 @@ class RealDataPlatformV2(RealDataPlatform):
         self._set_lifecycle(
             "PREDICT_MODEL_A",
             progress=0.0,
-            message="creating_future_excursion_predictions",
+            message="creating_future_excursion_predictions_for_available_horizons",
         )
         latest = features.sort_values("timestamp_ms").iloc[-1]
         anchor_ms = int(latest["timestamp_ms"])
@@ -152,7 +180,7 @@ class RealDataPlatformV2(RealDataPlatform):
         self._set_lifecycle(
             "MODEL_A_PREDICTIONS_STORED",
             progress=1.0,
-            message="model_a_predictions_written_before_outcomes",
+            message="model_a_available_horizon_predictions_stored",
         )
         return first_touch
 
@@ -178,7 +206,7 @@ class RealDataPlatformV2(RealDataPlatform):
         self._set_lifecycle(
             "REPORT",
             progress=0.0,
-            message="building_dual_model_production_report",
+            message="building_extended_horizon_production_report",
         )
         ledger = self._active_first_touch_ledger()
         envelope_predictions = self._active_envelope_predictions()
@@ -193,7 +221,7 @@ class RealDataPlatformV2(RealDataPlatform):
         self._set_lifecycle(
             "REPORT_READY",
             progress=1.0,
-            message="production_report_saved",
+            message="extended_horizon_production_report_saved",
         )
         return report
 
@@ -217,7 +245,12 @@ class RealDataPlatformV2(RealDataPlatform):
             "trained": trained,
             "first_touch_predictions_created": len(first_touch_predictions),
             "envelope_predictions_created": len(self._latest_envelope_predictions),
-            "envelope_model_available": self.envelope.bundle is not None,
+            "first_touch_available_horizons": sorted(
+                self._available_horizons(self._bundle)
+            ),
+            "envelope_available_horizons": sorted(
+                self._available_horizons(self.envelope.bundle)
+            ),
             "production_report": report,
         }
 
