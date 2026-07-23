@@ -39,8 +39,28 @@ jobs:
       - name: Lint
         run: ruff check src tests
 
-      - name: Type check
-        run: mypy src
+      - name: Capture type-check report
+        shell: bash
+        run: |
+          set +e
+          mypy src > "mypy-${{ matrix.python-version }}.txt" 2>&1
+          status=$?
+          cat "mypy-${{ matrix.python-version }}.txt"
+          echo "$status" > "mypy-${{ matrix.python-version }}.status"
+          exit 0
+
+      - name: Upload type-check report
+        uses: actions/upload-artifact@v4
+        with:
+          name: mypy-${{ matrix.python-version }}
+          path: |
+            mypy-${{ matrix.python-version }}.txt
+            mypy-${{ matrix.python-version }}.status
+          if-no-files-found: error
+
+      - name: Enforce clean type check
+        shell: bash
+        run: test "$(cat 'mypy-${{ matrix.python-version }}.status')" = "0"
 
       - name: Tests
         run: pytest --cov=xasp --cov-report=term-missing
