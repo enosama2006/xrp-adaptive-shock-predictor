@@ -16,7 +16,7 @@ from .extended_runtime import HORIZONS, ExtendedHorizonRealDataPlatform
 from .feature_registry import SCHEMA_VERSION as FEATURE_SCHEMA_VERSION
 from .features import join_anchors_with_features
 from .first_touch_v4 import FIRST_TOUCH_GATE_VERSION, train_first_touch_v4
-from .horizons import RESEARCH_HORIZON_SET_VERSION
+from .horizons import DAILY_FINALIZED_HORIZON_ROWS, RESEARCH_HORIZON_SET_VERSION
 
 
 class MemorySafeExtendedHorizonPlatform(ExtendedHorizonRealDataPlatform):
@@ -28,10 +28,12 @@ class MemorySafeExtendedHorizonPlatform(ExtendedHorizonRealDataPlatform):
         anchors = AnchorDatasetStore(self.paths.anchors).load()
         features = pd.read_parquet(self.paths.features)
         final_count = int((anchors["status"] == "FINAL").sum())
+        retrain_rows = max(
+            self.config.retrain_after_new_final_rows,
+            DAILY_FINALIZED_HORIZON_ROWS,
+        )
         due = force or (
-            final_count
-            >= self.status.last_training_final_rows
-            + self.config.retrain_after_new_final_rows
+            final_count >= self.status.last_training_final_rows + retrain_rows
         )
         if not due:
             return False
