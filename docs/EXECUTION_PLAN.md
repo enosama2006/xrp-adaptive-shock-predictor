@@ -44,7 +44,7 @@ Prove that the current OHLC, feature-registry, order-book-safety, and purge/emba
 - far-away order-book walls cannot influence primary pressure;
 - unsuccessful verification keeps the service at `WAIT`.
 
-Status: `IN PROGRESS`.
+Status: `LOCAL VERIFICATION PASSED; CI EVIDENCE STILL PENDING`.
 
 ---
 
@@ -88,7 +88,7 @@ Make the first 365-day collection resumable, observable, and safe against interr
 - progress is visible before training begins;
 - stale/incomplete bootstrap remains `WAIT`.
 
-Status: `STARTED`.
+Status: `LOCALLY VERIFIED FOR ONE-YEAR BOOTSTRAP; PARTITIONED MULTI-YEAR STORAGE PENDING`.
 
 ---
 
@@ -143,7 +143,7 @@ Make ±10% first-touch targets, training, calibration, prediction, and maturatio
 - performance beats unconditional and always-`NO_EVENT` controls on multiple untouched periods;
 - probabilities remain calibrated with sufficient independent support.
 
-Status: `CORE CORRECTNESS IMPLEMENTED; WALK-FORWARD AND EVENT CLUSTERS PENDING`.
+Status: `CORE CORRECTNESS IMPLEMENTED; PURGED WALK-FORWARD FOLD BUILDER STARTED; EVENT CLUSTERS AND RUNTIME INTEGRATION PENDING`.
 
 ---
 
@@ -330,8 +330,10 @@ Status: `PENDING`.
 
 ## Immediate implementation sequence
 
-1. Complete Phase 1 checkpointed bootstrap and lifecycle API.
-2. Add lifecycle UI and restart/interruption tests.
-3. Run Phase 0 clean verification against the new bootstrap code.
-4. Close remaining Model A/Model B independent-ledger and walk-forward gaps.
-5. Begin live order-book collector only after the base lifecycle is stable.
+1. Verify the new walk-forward splitter locally and in CI.
+2. Integrate per-fold Model B training, calibration, and rare-event support reporting.
+3. Add event-cluster independence checks before any 85% promotion claim.
+4. Introduce partitioned price/anchor storage before enabling a five-year bootstrap.
+5. Expand the history only after the storage and restart tests pass.
+6. Apply the same walk-forward discipline to Model A.
+7. Begin live order-book collection only after the base lifecycle remains stable.
