@@ -90,6 +90,7 @@ class PlatformStatus:
     processed_rows: int = 0
     checkpoint_writes: int = 0
     current_watermark_ms: int | None = None
+    price_partition_count: int = 0
 
 
 class RealDataPlatform:
@@ -106,6 +107,7 @@ class RealDataPlatform:
                 checkpoint_rows=config.checkpoint_rows,
             ),
         )
+        self.price_store = self.pipeline.price_store
         self.ledger = PredictionLedger(paths.ledger)
         self._bundle: dict[str, Any] | None = None
         self._status = self._load_status()
@@ -123,9 +125,8 @@ class RealDataPlatform:
                     loaded.get("training_final_rows", 0)
                 )
             else:
-                # Earlier bundles could pass by predicting the dominant NO_EVENT
-                # class with high confidence. They are not valid champions under
-                # the directional-event gate and must be retrained.
+                # Earlier bundles did not require enough directional evidence across
+                # multiple purged untouched periods. They are not v3 champions.
                 self._status.model_available = False
                 self._status.model_version = None
                 self._status.last_training_final_rows = 0
@@ -207,7 +208,7 @@ class RealDataPlatform:
         self._save_status()
 
     def _load_prices(self) -> pd.DataFrame:
-        frame = pd.read_parquet(self.paths.prices)
+        frame = self.price_store.load()
         required = {"timestamp_ms", "price", "open", "high", "low"}
         missing = required - set(frame.columns)
         if missing:
@@ -240,7 +241,7 @@ class RealDataPlatform:
 
     def sync_real_data(self, end_ms: int | None = None) -> None:
         cutoff = int(time.time() * 1000) if end_ms is None else end_ms
-        fresh_bootstrap = not self.paths.prices.exists() or self._status.price_rows == 0
+        fresh_bootstrap = not self.price_store.exists or self._status.price_rows == 0
         self._active_collection_stage = (
             "BOOTSTRAP_HISTORY" if fresh_bootstrap else "SYNC_MISSING_TAIL"
         )
@@ -259,6 +260,7 @@ class RealDataPlatform:
 
         result = self.pipeline.run(cutoff, progress_callback=self._on_pipeline_progress)
         self._status.checkpoint_writes = result.checkpoint_writes
+        self._status.price_partition_count = result.price_partition_count
         self._set_lifecycle(
             "BUILD_FEATURES",
             progress=0.0,
@@ -303,6 +305,19 @@ class RealDataPlatform:
         temporary = self.paths.feature_diagnostics.with_suffix(".json.tmp")
         temporary.write_text(json.dumps(report, indent=2, sort_keys=True), encoding="utf-8")
         temporary.replace(self.paths.feature_diagnostics)
+
+    @staticmethod
+    def _failure_reason(reports: dict[str, Any]) -> str:
+        reasons = {
+            str(report.get("reason", "unknown"))
+            for report in reports.values()
+            if isinstance(report, dict)
+        }
+        if "insufficient_directional_support_across_untouched_periods" in reasons:
+            return "model_b_walk_forward_directional_support_wait"
+        if "walk_forward_split_unavailable" in reasons:
+            return "model_b_walk_forward_split_wait"
+        return "directional_event_evidence_gate_failed"
 
     def train_if_due(self, force: bool = False) -> bool:
         if not self.config.training_enabled:
@@ -353,16 +368,19 @@ class RealDataPlatform:
             )
 
         self.paths.reports.parent.mkdir(parents=True, exist_ok=True)
-        self.paths.reports.write_text(
+        temporary_report = self.paths.reports.with_suffix(".json.tmp")
+        temporary_report.write_text(
             json.dumps(reports, indent=2, sort_keys=True), encoding="utf-8"
         )
+        temporary_report.replace(self.paths.reports)
         if not all_ready or len(models) != len(HORIZONS):
             self._status.last_training_final_rows = final_count
+            failure_reason = self._failure_reason(reports)
             if self._bundle is None:
                 self._status.model_available = False
                 self._status.model_version = None
                 self._status.state = "WAIT"
-                self._status.reason = "directional_event_evidence_gate_failed"
+                self._status.reason = failure_reason
                 message = "model_b_directional_event_gate_failed_or_insufficient"
             else:
                 self._status.state = "RESEARCH_ONLY"
@@ -371,7 +389,7 @@ class RealDataPlatform:
             self._set_lifecycle("MODEL_B_WAIT", progress=1.0, message=message)
             return False
 
-        version = f"real-logistic-{int(time.time())}"
+        version = f"real-logistic-walk-forward-{int(time.time())}"
         bundle = {
             "model_version": version,
             "trained_at_ms": int(time.time() * 1000),
@@ -382,6 +400,7 @@ class RealDataPlatform:
             "reports": reports,
             "training_final_rows": final_count,
             "source": "real_binance_public_data_only",
+            "promotion_evidence": "purged_walk_forward_support_plus_untouched_temporal_test",
             "promoted_for_trading": False,
         }
         self.paths.models.parent.mkdir(parents=True, exist_ok=True)
@@ -444,7 +463,7 @@ class RealDataPlatform:
                 anchor_price=anchor_price,
                 horizon_minutes=horizon,
                 model_version=str(self._bundle["model_version"]),
-                dataset_id="real-incremental",
+                dataset_id="real-incremental-partitioned-v1",
                 feature_schema_version=str(
                     self._bundle.get("feature_schema_version", FEATURE_SCHEMA_VERSION)
                 ),
