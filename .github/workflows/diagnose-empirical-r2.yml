@@ -10,59 +10,31 @@ permissions:
 
 jobs:
   diagnose:
-    if: contains(github.event.issue.title, '[XASP-DIAG-1.6.0-R2]')
+    if: contains(github.event.issue.title, '[XASP-DIAG-1.6.0-R3]')
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.11", "3.12"]
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.11"
           cache: pip
       - name: Install
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev]"
-      - name: Diagnose and comment
+      - name: Comment Ruff fix diff
         env:
           GH_TOKEN: ${{ github.token }}
           ISSUE_URL: ${{ github.event.issue.html_url }}
-          PYVER: ${{ matrix.python-version }}
         shell: bash
         run: |
           set +e
+          ruff check src/xasp/window_selection.py --fix --diff > diagnostic.txt 2>&1
           {
-            echo "Python $PYVER"
-            echo '## Compile'
-            python -m compileall -q src tests scripts
-            echo "status=$?"
-            echo
-            echo '## Ruff'
-            ruff check src tests --output-format concise
-            echo "status=$?"
-            echo
-            echo '## mypy'
-            mypy --python-version "$PYVER" src
-            echo "status=$?"
-            echo
-            echo '## pytest'
-            pytest -q
-            echo "status=$?"
-            echo
-            echo '## JavaScript'
-            node --check app.js
-            node --check governance.js
-            node --check discovery.js
-            echo "status=$?"
-          } > diagnostic.txt 2>&1
-          {
-            echo "### XASP diagnostics — Python $PYVER"
-            echo '```text'
-            head -c 60000 diagnostic.txt
+            echo '### Ruff proposed fix'
+            echo '```diff'
+            cat diagnostic.txt
             echo
             echo '```'
           } > comment.md
