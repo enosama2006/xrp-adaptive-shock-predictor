@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "xasp"
-version = "1.4.0"
+version = "1.4.1"
 description = "Governed dual-model XRP adaptive-shock and first-touch research platform"
 requires-python = ">=3.11"
 dependencies = [
@@ -35,6 +35,7 @@ xasp-build-anchors = "xasp.anchor_cli:main"
 xasp-run-pipeline = "xasp.pipeline_cli:main"
 xasp-platform = "xasp.platform_api:main"
 xasp-audit-data = "xasp.data_integrity:main"
+xasp-expand-history = "xasp.history_expansion:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
