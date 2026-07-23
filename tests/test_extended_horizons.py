@@ -5,12 +5,12 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from xasp.baseline import BaselineConfig
 from xasp.extended_runtime import _anchor_horizon_matrix_complete
 from xasp.fast_future_envelope import build_future_envelope_targets_fast
 from xasp.first_touch_v4 import FIRST_TOUCH_GATE_VERSION, train_first_touch_v4
 from xasp.horizons import RESEARCH_HORIZONS_MINUTES, RESEARCH_HORIZON_SET_VERSION
 from xasp.production_report_v2 import build_production_report
-from xasp.baseline import BaselineConfig
 
 MINUTE = 60_000
 
