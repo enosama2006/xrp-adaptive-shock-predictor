@@ -29,7 +29,7 @@ def _paths(tmp_path: Path) -> RuntimePaths:
 
 def _endpoint(app: FastAPI, path: str) -> Callable[..., Any]:
     for route in app.routes:
-        if route.path == path:
+        if getattr(route, "path", None) == path:
             return route.endpoint
     raise AssertionError(f"route not found: {path}")
 
@@ -38,7 +38,11 @@ def test_platform_wires_routes_without_network_or_market_fabrication(tmp_path: P
     paths = _paths(tmp_path)
     platform = RealDataPlatformV2(paths, RuntimeConfig(bootstrap_start_ms=1))
     app = create_app(platform, web_root=Path("."))
-    route_paths = {route.path for route in app.routes}
+    route_paths = {
+        path
+        for route in app.routes
+        if (path := getattr(route, "path", None)) is not None
+    }
 
     assert platform.status.state == "WAIT"
     assert platform.status.reason == "both_model_independent_horizon_gates_pending"
@@ -50,6 +54,9 @@ def test_platform_wires_routes_without_network_or_market_fabrication(tmp_path: P
     assert "/api/status" in route_paths
     assert "/api/health" in route_paths
     assert "/api/horizons" in route_paths
+    assert "/api/governance" in route_paths
+    assert "/api/reports/data-integrity" in route_paths
+    assert "/api/history-expansion" in route_paths
     assert "/api/models" in route_paths
     assert "/api/models/first-touch/latest" in route_paths
     assert "/api/models/adaptive-shock/latest" in route_paths
