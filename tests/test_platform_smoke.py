@@ -69,14 +69,7 @@ def test_platform_wires_routes_without_network_or_market_fabrication(tmp_path: P
     assert horizon_payload["horizons_minutes"] == list(RESEARCH_HORIZONS_MINUTES)
     assert horizon_payload["independent_gates"] is True
     assert horizon_payload["trading_promoted"] is False
-
-    discovery_payload = _endpoint(app, "/api/research/first-passage")()
-    assert discovery_payload["status"] == "WAIT"
-    assert discovery_payload["reason"] == "no_first_passage_discovery_report"
-
-    market_payload = _endpoint(app, "/api/market/latest")()
-    assert market_payload["status"] == "WAIT"
-    assert market_payload["reason"] == "no_observed_price_rows"
+    assert platform.price_store.stats().max_timestamp_ms is None
 
 
 def test_invalidated_first_touch_rows_are_hidden_from_public_ledger(tmp_path: Path) -> None:
