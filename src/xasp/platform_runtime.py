@@ -123,9 +123,7 @@ class RealDataPlatform:
                 self._bundle = loaded
                 self._status.model_available = True
                 self._status.model_version = str(loaded.get("model_version"))
-                self._status.last_training_final_rows = int(
-                    loaded.get("training_final_rows", 0)
-                )
+                self._status.last_training_final_rows = int(loaded.get("training_final_rows", 0))
             else:
                 # Earlier bundles did not require enough directional evidence across
                 # multiple purged untouched periods. They are not v3 champions.
@@ -192,9 +190,7 @@ class RealDataPlatform:
 
     def _on_pipeline_progress(self, progress: PipelineProgress) -> None:
         stage = (
-            self._active_collection_stage
-            if progress.stage == "COLLECT_HISTORY"
-            else progress.stage
+            self._active_collection_stage if progress.stage == "COLLECT_HISTORY" else progress.stage
         )
         self._status.lifecycle_stage = stage
         self._status.lifecycle_progress = progress.progress_fraction
@@ -275,13 +271,11 @@ class RealDataPlatform:
         features.to_parquet(temporary, index=False)
         temporary.replace(self.paths.features)
 
-        anchors = AnchorDatasetStore(self.paths.anchors).load()
-        final_rows = int((anchors["status"] == "FINAL").sum()) if not anchors.empty else 0
-        pending_rows = int((anchors["status"] == "PENDING").sum()) if not anchors.empty else 0
+        anchor_stats = AnchorDatasetStore(self.paths.anchors).stats()
         self._status.price_rows = len(prices)
-        self._status.anchor_rows = len(anchors)
-        self._status.final_rows = final_rows
-        self._status.pending_rows = pending_rows
+        self._status.anchor_rows = anchor_stats.total_rows
+        self._status.final_rows = anchor_stats.final_rows
+        self._status.pending_rows = anchor_stats.pending_rows
         self._status.data_start_ms = None if prices.empty else int(prices["timestamp_ms"].min())
         self._status.data_end_ms = None if prices.empty else int(prices["timestamp_ms"].max())
         self._status.current_watermark_ms = self._status.data_end_ms
@@ -329,8 +323,7 @@ class RealDataPlatform:
         final_count = int((anchors["status"] == "FINAL").sum())
         due = force or (
             final_count
-            >= self._status.last_training_final_rows
-            + self.config.retrain_after_new_final_rows
+            >= self._status.last_training_final_rows + self.config.retrain_after_new_final_rows
         )
         if not due:
             return False
@@ -371,9 +364,7 @@ class RealDataPlatform:
 
         self.paths.reports.parent.mkdir(parents=True, exist_ok=True)
         temporary_report = self.paths.reports.with_suffix(".json.tmp")
-        temporary_report.write_text(
-            json.dumps(reports, indent=2, sort_keys=True), encoding="utf-8"
-        )
+        temporary_report.write_text(json.dumps(reports, indent=2, sort_keys=True), encoding="utf-8")
         temporary_report.replace(self.paths.reports)
         if not all_ready or len(models) != len(HORIZONS):
             self._status.last_training_final_rows = final_count
@@ -431,8 +422,7 @@ class RealDataPlatform:
             return []
         if (
             self._status.last_prediction_ms is not None
-            and timestamp - self._status.last_prediction_ms
-            < self.config.prediction_cadence_ms
+            and timestamp - self._status.last_prediction_ms < self.config.prediction_cadence_ms
         ):
             return []
 

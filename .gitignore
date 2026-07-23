@@ -1,0 +1,21 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Build and editable-install metadata
+*.egg-info/
+build/
+dist/
+
+# Coverage and local environments
+.coverage
+coverage.xml
+htmlcov/
+.venv/
+venv/
+
+# Runtime-local data and temporary files
+*.tmp

@@ -11,6 +11,11 @@ from typing import Any, cast
 import joblib
 import pandas as pd
 
+from .anchor_dataset import AnchorDatasetStore
+from .envelope_target_store import (
+    EnvelopeTargetStore,
+    sync_envelope_targets_from_anchors,
+)
 from .fast_future_envelope import build_future_envelope_targets_fast
 from .features import join_anchors_with_features
 from .future_envelope import EnvelopeConfig, predict_envelope, train_future_envelope
@@ -42,6 +47,7 @@ class EnvelopeEngineV2:
 
     def __init__(self, paths: EnvelopePaths = EnvelopePaths()) -> None:
         self.paths = paths
+        self.target_store = EnvelopeTargetStore(paths.targets)
         self.bundle: dict[str, Any] | None = None
         if paths.model.exists():
             loaded = joblib.load(paths.model)
@@ -54,28 +60,36 @@ class EnvelopeEngineV2:
             horizons=HORIZONS,
             chunk_rows=TARGET_BUILD_CHUNK_ROWS,
         )
-        self.paths.targets.parent.mkdir(parents=True, exist_ok=True)
-        temporary = self.paths.targets.with_suffix(".parquet.tmp")
-        targets.to_parquet(temporary, index=False)
-        temporary.replace(self.paths.targets)
+        self.target_store.replace(targets)
         return targets
+
+    def sync_targets_from_anchors(
+        self,
+        anchor_store: AnchorDatasetStore,
+        *,
+        changed_partitions: tuple[Any, ...] | None = None,
+    ) -> None:
+        sync_envelope_targets_from_anchors(
+            anchor_store,
+            self.target_store,
+            changed_anchor_partitions=changed_partitions,
+        )
 
     def train(
         self,
-        targets: pd.DataFrame,
+        targets: pd.DataFrame | None,
         features: pd.DataFrame,
         feature_names: list[str],
         minimum_rows: int,
         *,
         training_final_rows: int,
     ) -> bool:
-        if targets.empty:
+        if targets is not None and targets.empty:
             return False
         incumbent_models: dict[int, dict[str, Any]] = {}
         if self.bundle is not None:
             incumbent_models = {
-                int(horizon): model
-                for horizon, model in self.bundle.get("models", {}).items()
+                int(horizon): model for horizon, model in self.bundle.get("models", {}).items()
             }
         models = dict(incumbent_models)
         reports: dict[str, Any] = {}
@@ -83,7 +97,14 @@ class EnvelopeEngineV2:
         rejected: list[int] = []
 
         for horizon in HORIZONS:
-            target_subset = targets[targets["horizon_minutes"] == horizon].copy()
+            target_subset = (
+                self.target_store.load(
+                    horizons=(horizon,),
+                    statuses=("FINAL",),
+                )
+                if targets is None
+                else targets[targets["horizon_minutes"] == horizon].copy()
+            )
             matrix = join_anchors_with_features(target_subset, features)
             fitted, report = train_future_envelope(
                 matrix,
@@ -115,6 +136,7 @@ class EnvelopeEngineV2:
         if not promoted and self.bundle is not None:
             return False
 
+        target_stats = self.target_store.stats()
         bundle: dict[str, Any] = {
             "model_version": f"real-envelope-independent-horizons-{int(time.time())}",
             "trained_at_ms": int(time.time() * 1000),
@@ -129,6 +151,8 @@ class EnvelopeEngineV2:
             "source": "observed_binance_ohlc_only",
             "required_empirical_interval_coverage": 0.85,
             "training_final_rows": int(training_final_rows),
+            "target_rows": target_stats.total_rows,
+            "target_partition_count": target_stats.partition_count,
             "promoted_for_trading": False,
         }
         self.paths.model.parent.mkdir(parents=True, exist_ok=True)
@@ -150,10 +174,7 @@ class EnvelopeEngineV2:
         row = pd.DataFrame([{name: latest_features.get(name) for name in feature_names}])
         issued_at_ms = int(time.time() * 1000)
         output: list[dict[str, Any]] = []
-        models = {
-            int(horizon): model
-            for horizon, model in self.bundle.get("models", {}).items()
-        }
+        models = {int(horizon): model for horizon, model in self.bundle.get("models", {}).items()}
         for horizon in sorted(models):
             estimates = predict_envelope(models[horizon], row)
             max_values = sorted(

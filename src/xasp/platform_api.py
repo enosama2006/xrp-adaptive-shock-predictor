@@ -123,12 +123,8 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
             }
         )
         current = bool(horizons) and versions == [FIRST_TOUCH_GATE_VERSION]
-        statuses = {
-            key: str(report.get("status", "WAIT")) for key, report in horizons.items()
-        }
-        reasons = {
-            key: str(report.get("reason", "unknown")) for key, report in horizons.items()
-        }
+        statuses = {key: str(report.get("status", "WAIT")) for key, report in horizons.items()}
+        reasons = {key: str(report.get("reason", "unknown")) for key, report in horizons.items()}
         walk_forward = {
             key: report.get("metrics", {}).get("walk_forward_support_audit")
             for key, report in horizons.items()
@@ -174,9 +170,7 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
             return []
         latest_anchor = int(frame["anchor_timestamp_ms"].max())
         subset = frame[frame["anchor_timestamp_ms"] == latest_anchor]
-        return _record_list(
-            subset.where(subset.notna(), None).to_dict(orient="records")
-        )
+        return _record_list(subset.where(subset.notna(), None).to_dict(orient="records"))
 
     def model_catalog() -> dict[str, Any]:
         shock_bundle = platform.envelope.bundle
@@ -298,7 +292,8 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
             "first_touch_model_file": paths.models.exists(),
             "first_touch_report": paths.reports.exists(),
             "prediction_ledger": paths.ledger.exists(),
-            "shock_targets": platform.envelope.paths.targets.exists(),
+            "shock_targets": platform.envelope.target_store.exists,
+            "shock_target_partitions": platform.envelope.target_store.stats().partition_count,
             "shock_model_file": platform.envelope.paths.model.exists(),
             "shock_report": platform.envelope.paths.report.exists(),
             "production_report": report_paths.latest_json.exists(),
@@ -338,16 +333,12 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
         payload = asdict(platform.status)
         payload["configured_horizons_minutes"] = list(RESEARCH_HORIZONS_MINUTES)
         payload["horizon_set_version"] = RESEARCH_HORIZON_SET_VERSION
-        payload["adaptive_shock_available_horizons"] = _bundle_horizons(
-            platform.envelope.bundle
-        )
+        payload["adaptive_shock_available_horizons"] = _bundle_horizons(platform.envelope.bundle)
         payload["first_touch_available_horizons"] = _bundle_horizons(platform._bundle)
         payload["adaptive_shock_model_available"] = bool(
             payload["adaptive_shock_available_horizons"]
         )
-        payload["first_touch_model_available"] = bool(
-            payload["first_touch_available_horizons"]
-        )
+        payload["first_touch_model_available"] = bool(payload["first_touch_available_horizons"])
         payload["first_touch_gate_methodology_version"] = FIRST_TOUCH_GATE_VERSION
         payload["required_empirical_confidence"] = 0.85
         payload["confidence_note"] = (
@@ -393,9 +384,7 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
             return []
         latest_anchor = int(frame["anchor_timestamp_ms"].max())
         subset = frame[frame["anchor_timestamp_ms"] == latest_anchor]
-        return _record_list(
-            subset.where(subset.notna(), None).to_dict(orient="records")
-        )
+        return _record_list(subset.where(subset.notna(), None).to_dict(orient="records"))
 
     @app.get("/api/models/adaptive-shock/latest")
     @app.get("/api/envelope/latest")
@@ -407,9 +396,7 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
         frame = active_first_touch_ledger()
         if frame.empty:
             return []
-        frame = frame.sort_values("created_at_ms", ascending=False).head(
-            max(1, min(limit, 1000))
-        )
+        frame = frame.sort_values("created_at_ms", ascending=False).head(max(1, min(limit, 1000)))
         return _record_list(frame.where(frame.notna(), None).to_dict(orient="records"))
 
     @app.get("/api/reports/training/first-touch")

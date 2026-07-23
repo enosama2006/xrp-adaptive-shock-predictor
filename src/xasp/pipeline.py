@@ -12,8 +12,11 @@ import pandas as pd
 from .anchor_dataset import AnchorDatasetConfig, AnchorDatasetStore
 from .data.binance import BinanceDataClient
 from .dataset_state import DatasetStateStore
-from .fast_anchor_dataset import update_anchor_dataset_from_candles_fast
 from .labeling import CandlePoint
+from .partitioned_anchor_builder import (
+    AnchorBuildResult,
+    build_partitioned_anchor_dataset,
+)
 from .price_store import (
     CORE_PRICE_COLUMNS,
     OPTIONAL_PRICE_COLUMNS,
@@ -98,6 +101,7 @@ class PipelineRunResult:
     finalized_labels: int
     checkpoint_writes: int = 0
     price_partition_count: int = 0
+    anchor_partition_count: int = 0
 
 
 def _normalize_completed_minute_timestamp(timestamp_ms: int) -> int:
@@ -224,6 +228,7 @@ class IncrementalResearchPipeline:
             paths.price_partitions,
             legacy_path=paths.prices,
         )
+        self.last_anchor_build_result: AnchorBuildResult | None = None
 
     def _requested_start(self, stats: PriceStoreStats) -> int:
         if stats.max_timestamp_ms is None:
@@ -420,12 +425,13 @@ class IncrementalResearchPipeline:
             checkpoint_writes=checkpoint_writes,
         )
         prices = self.price_store.load()
-        anchors = update_anchor_dataset_from_candles_fast(
-            _to_candles(prices),
+        anchor_build = build_partitioned_anchor_dataset(
+            prices,
             AnchorDatasetStore(self.paths.anchors),
             state_store,
             self.config.anchor_config,
         )
+        self.last_anchor_build_result = anchor_build
         state = state_store.load()
 
         self._notify(
@@ -443,11 +449,12 @@ class IncrementalResearchPipeline:
             requested_end_ms=end_time_ms,
             fetched_rows=processed_rows,
             total_price_rows=stats.total_rows,
-            anchor_rows=len(anchors),
+            anchor_rows=anchor_build.stats.total_rows,
             pending_labels=state.pending_label_count,
             finalized_labels=state.finalized_label_count,
             checkpoint_writes=checkpoint_writes,
             price_partition_count=stats.partition_count,
+            anchor_partition_count=anchor_build.stats.partition_count,
         )
 
 
