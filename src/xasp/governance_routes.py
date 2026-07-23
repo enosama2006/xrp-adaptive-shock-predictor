@@ -7,7 +7,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
+import pandas as pd
 from fastapi import APIRouter
+from fastapi.responses import FileResponse
 
 from .history_expansion import MINUTE_MS
 from .platform_runtime_v2 import RealDataPlatformV2
@@ -18,6 +20,12 @@ def _json_object(path: Path) -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError(f"governance JSON must contain an object: {path}")
     return cast(dict[str, Any], payload)
+
+
+def _optional_float(value: Any) -> float | None:
+    if value is None or pd.isna(value):
+        return None
+    return float(value)
 
 
 def _history_progress(payload: dict[str, Any]) -> float:
@@ -163,14 +171,16 @@ def build_governance_router(platform: RealDataPlatformV2) -> APIRouter:
             "high": float(row["high"]),
             "low": float(row["low"]),
             "volume": float(row["volume"]),
-            "quote_volume": (
-                None if row.get("quote_volume") is None else float(row["quote_volume"])
-            ),
+            "quote_volume": _optional_float(row.get("quote_volume")),
             "source": "latest_observed_completed_one_minute_candle",
         }
         latest_market_cache["timestamp_ms"] = timestamp_ms
         latest_market_cache["payload"] = payload
         return payload
+
+    @router.get("/discovery.js", include_in_schema=False)
+    def discovery_javascript() -> FileResponse:
+        return FileResponse(Path("discovery.js"), media_type="application/javascript")
 
     @router.get("/governance")
     def governance_summary() -> dict[str, Any]:
