@@ -1,0 +1,25 @@
+src/xasp/anchor_cli.py:31:101: E501 Line too long (101 > 100)
+src/xasp/anchor_dataset.py:317:35: B008 Do not perform function call `AnchorDatasetConfig` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+src/xasp/anchor_dataset.py:380:35: B008 Do not perform function call `AnchorDatasetConfig` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+src/xasp/baseline.py:408:30: B008 Do not perform function call `BaselineConfig` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+src/xasp/baseline_cli.py:48:101: E501 Line too long (101 > 100)
+src/xasp/drift.py:69:35: B008 Do not perform function call `DriftThresholds` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+src/xasp/drift.py:71:101: E501 Line too long (108 > 100)
+src/xasp/drift.py:92:101: E501 Line too long (102 > 100)
+src/xasp/drift.py:97:101: E501 Line too long (102 > 100)
+src/xasp/drift.py:98:101: E501 Line too long (101 > 100)
+src/xasp/envelope_engine.py:35:47: B008 Do not perform function call `EnvelopePaths` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+src/xasp/envelope_engine_v2.py:43:47: B008 Do not perform function call `EnvelopePaths` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+src/xasp/fast_anchor_dataset.py:320:35: B008 Do not perform function call `AnchorDatasetConfig` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+src/xasp/features.py:80:29: B008 Do not perform function call `FeatureConfig` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+src/xasp/first_touch_v5.py:240:30: B008 Do not perform function call `BaselineConfig` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+src/xasp/future_envelope.py:245:30: B008 Do not perform function call `EnvelopeConfig` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+src/xasp/labeling.py:104:29: B008 Do not perform function call `BarrierConfig` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+src/xasp/labeling.py:197:29: B008 Do not perform function call `BarrierConfig` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+src/xasp/orderbook_features.py:123:31: B008 Do not perform function call `ProximityConfig` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+src/xasp/pipeline.py:195:34: B008 Do not perform function call `PipelineConfig` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+src/xasp/price_store.py:257:101: E501 Line too long (101 > 100)
+src/xasp/production_report.py:313:36: B008 Do not perform function call `ProductionReportPaths` in argument defaults; instead, perform the call within the function, or read the default from a module-level singleton variable
+src/xasp/splitting.py:52:101: E501 Line too long (108 > 100)
+tests/test_ohlc_first_touch.py:24:101: E501 Line too long (105 > 100)
+Found 24 errors.
