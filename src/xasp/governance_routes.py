@@ -1,8 +1,9 @@
-"""Read-only governance endpoints for observed-data evidence and history expansion."""
+"""Read-only governance evidence and API routes."""
 
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
@@ -30,33 +31,42 @@ def _history_progress(payload: dict[str, Any]) -> float:
     return min(1.0, completed_span / span)
 
 
-def build_governance_router(platform: RealDataPlatformV2) -> APIRouter:
-    router = APIRouter(prefix="/api", tags=["governance"])
-    integrity_path = platform.paths.reports.parent / "data_integrity.json"
-    expansion_path = platform.paths.state.parent / "history_expansion_state.json"
+@dataclass(frozen=True, slots=True)
+class GovernanceEvidenceReader:
+    integrity_path: Path
+    expansion_path: Path
 
-    def integrity_payload() -> dict[str, Any]:
-        if not integrity_path.exists():
+    @classmethod
+    def from_platform(cls, platform: RealDataPlatformV2) -> GovernanceEvidenceReader:
+        return cls(
+            integrity_path=platform.paths.reports.parent / "data_integrity.json",
+            expansion_path=platform.paths.state.parent / "history_expansion_state.json",
+        )
+
+    def integrity_payload(self) -> dict[str, Any]:
+        if not self.integrity_path.exists():
             return {
                 "status": "WAIT",
                 "reason": "no_data_integrity_report",
-                "report_path": str(integrity_path),
+                "report_path": str(self.integrity_path),
             }
-        payload = _json_object(integrity_path)
-        payload["report_path"] = str(integrity_path)
-        payload["report_updated_at_ms"] = int(integrity_path.stat().st_mtime * 1000)
+        payload = _json_object(self.integrity_path)
+        payload["report_path"] = str(self.integrity_path)
+        payload["report_updated_at_ms"] = int(
+            self.integrity_path.stat().st_mtime * 1000
+        )
         return payload
 
-    def expansion_payload() -> dict[str, Any]:
-        if not expansion_path.exists():
+    def expansion_payload(self) -> dict[str, Any]:
+        if not self.expansion_path.exists():
             return {
                 "status": "IDLE",
                 "reason": "no_history_expansion_requested",
                 "completed": False,
                 "progress_fraction": 0.0,
-                "state_path": str(expansion_path),
+                "state_path": str(self.expansion_path),
             }
-        payload = _json_object(expansion_path)
+        payload = _json_object(self.expansion_path)
         completed = bool(payload.get("completed", False))
         payload["status"] = "READY" if completed else "WAIT"
         payload["reason"] = (
@@ -65,22 +75,15 @@ def build_governance_router(platform: RealDataPlatformV2) -> APIRouter:
             else "history_expansion_checkpointed_incomplete"
         )
         payload["progress_fraction"] = _history_progress(payload)
-        payload["state_path"] = str(expansion_path)
-        payload["state_updated_at_ms"] = int(expansion_path.stat().st_mtime * 1000)
+        payload["state_path"] = str(self.expansion_path)
+        payload["state_updated_at_ms"] = int(
+            self.expansion_path.stat().st_mtime * 1000
+        )
         return payload
 
-    @router.get("/reports/data-integrity")
-    def data_integrity_report() -> dict[str, Any]:
-        return integrity_payload()
-
-    @router.get("/history-expansion")
-    def history_expansion_status() -> dict[str, Any]:
-        return expansion_payload()
-
-    @router.get("/governance")
-    def governance_summary() -> dict[str, Any]:
-        integrity = integrity_payload()
-        expansion = expansion_payload()
+    def summary_payload(self) -> dict[str, Any]:
+        integrity = self.integrity_payload()
+        expansion = self.expansion_payload()
         return {
             "data_integrity": integrity,
             "history_expansion": expansion,
@@ -88,7 +91,24 @@ def build_governance_router(platform: RealDataPlatformV2) -> APIRouter:
             "trading_promoted": False,
         }
 
+
+def build_governance_router(platform: RealDataPlatformV2) -> APIRouter:
+    router = APIRouter(prefix="/api", tags=["governance"])
+    reader = GovernanceEvidenceReader.from_platform(platform)
+
+    @router.get("/reports/data-integrity")
+    def data_integrity_report() -> dict[str, Any]:
+        return reader.integrity_payload()
+
+    @router.get("/history-expansion")
+    def history_expansion_status() -> dict[str, Any]:
+        return reader.expansion_payload()
+
+    @router.get("/governance")
+    def governance_summary() -> dict[str, Any]:
+        return reader.summary_payload()
+
     return router
 
 
-__all__ = ["build_governance_router"]
+__all__ = ["GovernanceEvidenceReader", "build_governance_router"]
