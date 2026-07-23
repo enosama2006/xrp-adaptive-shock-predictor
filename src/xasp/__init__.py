@@ -10,15 +10,7 @@ from .labeling import BarrierConfig, BarrierLabel, label_first_touch
 # Pipeline and envelope modules import these symbols after package initialization,
 # so production bootstrap uses the vectorized implementations without breaking
 # existing callers or persisted schemas.
-setattr(
-    _anchor_dataset,
-    "update_anchor_dataset_from_candles",
-    update_anchor_dataset_from_candles_fast,
-)
-setattr(
-    _future_envelope,
-    "build_future_envelope_targets",
-    build_future_envelope_targets_fast,
-)
+_anchor_dataset.update_anchor_dataset_from_candles = update_anchor_dataset_from_candles_fast
+_future_envelope.build_future_envelope_targets = build_future_envelope_targets_fast
 
 __all__ = ["BarrierConfig", "BarrierLabel", "label_first_touch"]

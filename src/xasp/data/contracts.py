@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from hashlib import sha256
 from pathlib import Path
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-
 
 Venue = Literal["binance_spot", "binance_usdm"]
 RecordType = Literal[
@@ -75,7 +74,7 @@ class DatasetManifest(BaseModel):
 
 
 def utc_now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def file_digest(path: Path, *, rows: int) -> DatasetFile:

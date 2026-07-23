@@ -6,11 +6,13 @@ from typing import Any
 
 import pandas as pd
 
-from .horizons import RESEARCH_HORIZONS_MINUTES, RESEARCH_HORIZON_SET_VERSION
+from .horizons import RESEARCH_HORIZON_SET_VERSION, RESEARCH_HORIZONS_MINUTES
 from .production_report import (
     ProductionReportPaths,
-    build_production_report as _build_legacy_report,
     save_production_report,
+)
+from .production_report import (
+    build_production_report as _build_legacy_report,
 )
 
 REQUIRED_ENVELOPE_ROWS_PER_HORIZON = 100

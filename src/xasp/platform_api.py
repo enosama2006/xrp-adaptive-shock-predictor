@@ -4,23 +4,23 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from dataclasses import asdict
-import json
 from pathlib import Path
 from threading import Lock
 from typing import Any
 
+import uvicorn
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
-import uvicorn
 
 from .first_touch_v4 import FIRST_TOUCH_GATE_VERSION
 from .horizons import (
     RESEARCH_HORIZON_KEYS,
-    RESEARCH_HORIZONS_MINUTES,
     RESEARCH_HORIZON_SET_VERSION,
+    RESEARCH_HORIZONS_MINUTES,
 )
 from .platform_runtime_v2 import RealDataPlatformV2, RuntimeConfig, RuntimePaths
 from .production_report_v2 import ProductionReportPaths

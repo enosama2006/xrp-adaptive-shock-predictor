@@ -7,12 +7,12 @@ updates rolling labels, trains only from persisted real rows, and writes a healt
 from __future__ import annotations
 
 import argparse
-from dataclasses import asdict, dataclass
 import json
-from pathlib import Path
 import subprocess
 import sys
 import time
+from dataclasses import asdict, dataclass
+from pathlib import Path
 
 
 @dataclass(frozen=True, slots=True)

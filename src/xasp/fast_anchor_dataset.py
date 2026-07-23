@@ -9,11 +9,11 @@ maturing live-tail rows.
 
 from __future__ import annotations
 
-from typing import Iterable
+from collections.abc import Iterable
 
 import numpy as np
-from numpy.lib.stride_tricks import sliding_window_view
 import pandas as pd
+from numpy.lib.stride_tricks import sliding_window_view
 
 from .anchor_dataset import ANCHOR_COLUMNS, AnchorDatasetConfig, AnchorDatasetStore
 from .dataset_state import DatasetStateStore

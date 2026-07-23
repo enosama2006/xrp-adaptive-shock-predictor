@@ -14,7 +14,7 @@ class TimeInterval:
         if self.end_ms <= self.start_ms:
             raise ValueError("end_ms must be greater than start_ms")
 
-    def overlaps(self, other: "TimeInterval") -> bool:
+    def overlaps(self, other: TimeInterval) -> bool:
         return self.start_ms < other.end_ms and other.start_ms < self.end_ms
 
 

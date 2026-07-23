@@ -2,19 +2,19 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
 import json
-from pathlib import Path
 import time
+from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any
 
 import joblib
 import pandas as pd
 
 from .fast_future_envelope import build_future_envelope_targets_fast
-from .future_envelope import EnvelopeConfig, predict_envelope, train_future_envelope
 from .features import join_anchors_with_features
-from .horizons import RESEARCH_HORIZONS_MINUTES, RESEARCH_HORIZON_SET_VERSION
+from .future_envelope import EnvelopeConfig, predict_envelope, train_future_envelope
+from .horizons import RESEARCH_HORIZON_SET_VERSION, RESEARCH_HORIZONS_MINUTES
 
 HORIZONS = RESEARCH_HORIZONS_MINUTES
 TARGET_BUILD_CHUNK_ROWS = 10_000

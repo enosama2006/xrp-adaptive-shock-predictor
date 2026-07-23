@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import asdict
 import json
 import time
+from dataclasses import asdict
 from pathlib import Path
 
 from .pipeline import IncrementalResearchPipeline, PipelineConfig, PipelinePaths

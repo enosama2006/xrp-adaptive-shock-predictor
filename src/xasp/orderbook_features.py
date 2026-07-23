@@ -8,9 +8,9 @@ near-price pressure or distance-weighted imbalance.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from math import exp, log1p
-from typing import Iterable
 
 
 @dataclass(frozen=True, slots=True)

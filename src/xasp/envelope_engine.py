@@ -2,23 +2,23 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
 import json
-from pathlib import Path
 import time
+from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any
 
 import joblib
 import pandas as pd
 
+from .features import join_anchors_with_features
 from .future_envelope import (
-    EnvelopeConfig,
     HORIZONS,
+    EnvelopeConfig,
     build_future_envelope_targets,
     predict_envelope,
     train_future_envelope,
 )
-from .features import join_anchors_with_features
 
 
 @dataclass(frozen=True, slots=True)
