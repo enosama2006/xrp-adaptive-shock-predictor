@@ -12,6 +12,7 @@ from fastapi import APIRouter
 from fastapi.responses import FileResponse
 
 from .history_expansion import MINUTE_MS
+from .lab_routes import build_lab_router
 from .platform_runtime_v2 import RealDataPlatformV2
 from .window_selection import select_candidate_windows
 
@@ -193,6 +194,7 @@ def build_governance_router(platform: RealDataPlatformV2) -> APIRouter:
     def governance_summary() -> dict[str, Any]:
         return reader.summary_payload()
 
+    router.include_router(build_lab_router(platform))
     return router
 
 
