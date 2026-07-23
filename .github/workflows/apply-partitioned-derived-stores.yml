@@ -18,11 +18,21 @@ jobs:
           ref: ${{ github.head_ref }}
           fetch-depth: 0
 
-      - name: Apply deterministic integration
+      - name: Remove generated tracked artifacts
+        shell: bash
         run: |
-          python scripts/apply_partitioned_integration.py
-          rm scripts/apply_partitioned_integration.py
-          rm docs/partitioned-derived-stores.patch
+          git rm -r -f --ignore-unmatch src/xasp.egg-info
+          find src tests scripts -type d -name __pycache__ -print0 | while IFS= read -r -d '' directory; do
+            git rm -r -f --ignore-unmatch "$directory"
+            rm -rf "$directory"
+          done
+          git rm -f --ignore-unmatch .coverage
+          rm -rf .pytest_cache .mypy_cache .ruff_cache
+
+      - name: Apply streaming manifest optimization
+        run: |
+          python scripts/optimize_partitioned_stores.py
+          rm scripts/optimize_partitioned_stores.py
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -42,32 +52,14 @@ jobs:
             src/xasp/partitioned_anchor_builder.py \
             src/xasp/envelope_target_store.py \
             src/xasp/anchor_dataset.py \
-            src/xasp/pipeline.py \
-            src/xasp/platform_runtime.py \
-            src/xasp/extended_runtime.py \
-            src/xasp/memory_safe_runtime.py \
-            src/xasp/envelope_engine_v2.py \
-            src/xasp/platform_runtime_v2.py \
-            src/xasp/platform_api.py \
             tests/test_partitioned_horizon_store.py \
-            tests/test_partitioned_anchor_builder.py \
-            tests/test_envelope_target_store.py \
             --fix
           ruff format \
             src/xasp/partitioned_horizon_store.py \
             src/xasp/partitioned_anchor_builder.py \
             src/xasp/envelope_target_store.py \
             src/xasp/anchor_dataset.py \
-            src/xasp/pipeline.py \
-            src/xasp/platform_runtime.py \
-            src/xasp/extended_runtime.py \
-            src/xasp/memory_safe_runtime.py \
-            src/xasp/envelope_engine_v2.py \
-            src/xasp/platform_runtime_v2.py \
-            src/xasp/platform_api.py \
-            tests/test_partitioned_horizon_store.py \
-            tests/test_partitioned_anchor_builder.py \
-            tests/test_envelope_target_store.py
+            tests/test_partitioned_horizon_store.py
 
       - name: Compile
         run: python -m compileall -q src tests scripts
@@ -86,12 +78,16 @@ jobs:
           node --check app.js
           node --check governance.js
 
-      - name: Persist verified changes
+      - name: Persist verified optimization and cleanup
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src tests pyproject.toml
-          git add -u docs/partitioned-derived-stores.patch
-          git add -u scripts/apply_partitioned_integration.py
-          git commit -m "storage: integrate partitioned anchor and Model A target stores"
+          git add .gitignore
+          git add src/xasp/partitioned_horizon_store.py
+          git add src/xasp/partitioned_anchor_builder.py
+          git add src/xasp/envelope_target_store.py
+          git add src/xasp/anchor_dataset.py
+          git add tests/test_partitioned_horizon_store.py
+          git add -u
+          git commit -m "storage: stream partition writes and remove generated artifacts"
           git push origin HEAD:${{ github.head_ref }}
