@@ -44,8 +44,28 @@ jobs:
       - name: Lint
         run: ruff check src tests
 
-      - name: Type check
-        run: mypy src
+      - name: Capture post-patch type findings
+        shell: bash
+        run: |
+          set +e
+          mypy src > mypy-post-patch.txt 2>&1
+          status=$?
+          cat mypy-post-patch.txt
+          echo "$status" > mypy-post-patch-status.txt
+          exit 0
+
+      - name: Upload post-patch mypy report
+        uses: actions/upload-artifact@v4
+        with:
+          name: mypy-post-patch
+          path: |
+            mypy-post-patch.txt
+            mypy-post-patch-status.txt
+          if-no-files-found: error
+
+      - name: Enforce clean type check
+        shell: bash
+        run: test "$(cat mypy-post-patch-status.txt)" = "0"
 
       - name: Tests
         run: pytest --cov=xasp --cov-report=term-missing
