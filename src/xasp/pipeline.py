@@ -112,34 +112,56 @@ def _load_prices(path: Path) -> pd.DataFrame:
     return PartitionedPriceStore(path.with_suffix(""), legacy_path=path).load()
 
 
+ScalarValue = str | bytes | bytearray | int | float
+
+
+def _scalar_value(value: object, name: str) -> ScalarValue:
+    if isinstance(value, (str, bytes, bytearray, int, float)):
+        return value
+    raise ValueError(f"kline field {name!r} has an unsupported scalar value")
+
+
+def _required_float(payload: dict[str, object], name: str) -> float:
+    if name not in payload:
+        raise ValueError(f"kline payload missing required field: {name}")
+    return float(_scalar_value(payload[name], name))
+
+
+def _required_int(value: object, name: str) -> int:
+    return int(_scalar_value(value, name))
+
+
 def _optional_float(payload: dict[str, object], name: str) -> float | None:
     value = payload.get(name)
     if value in (None, ""):
         return None
-    return float(value)
+    return float(_scalar_value(value, name))
 
 
 def _optional_int(payload: dict[str, object], name: str) -> int | None:
     value = payload.get(name)
     if value in (None, ""):
         return None
-    return int(value)
+    return int(_scalar_value(value, name))
 
 
 def _records_to_prices(records: Iterable[KlineRecord]) -> pd.DataFrame:
     rows: list[dict[str, object]] = []
     for record in records:
         payload = record.payload
-        raw_close_time = int(payload.get("close_time_ms", record.event_time_ms))
+        raw_close_time = _required_int(
+            payload.get("close_time_ms", record.event_time_ms),
+            "close_time_ms",
+        )
         timestamp_ms = _normalize_completed_minute_timestamp(raw_close_time)
         rows.append(
             {
                 "timestamp_ms": timestamp_ms,
-                "price": float(payload["close"]),
-                "open": float(payload["open"]),
-                "high": float(payload["high"]),
-                "low": float(payload["low"]),
-                "volume": float(payload["volume"]),
+                "price": _required_float(payload, "close"),
+                "open": _required_float(payload, "open"),
+                "high": _required_float(payload, "high"),
+                "low": _required_float(payload, "low"),
+                "volume": _required_float(payload, "volume"),
                 "quote_volume": _optional_float(payload, "quote_volume"),
                 "trade_count": _optional_int(payload, "trade_count"),
                 "taker_buy_base": _optional_float(payload, "taker_buy_base"),
