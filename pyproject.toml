@@ -59,8 +59,6 @@ packages = ["xasp"]
 
 [[tool.mypy.overrides]]
 module = [
-  "numpy",
-  "numpy.*",
   "pandas",
   "pandas.*",
   "sklearn",
@@ -69,4 +67,3 @@ module = [
   "joblib.*",
 ]
 ignore_missing_imports = true
-follow_imports = "skip"
