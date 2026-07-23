@@ -44,8 +44,28 @@ jobs:
       - name: Type check
         run: mypy --python-version 3.11 src
 
-      - name: Tests
-        run: pytest --cov=xasp --cov-report=term-missing
+      - name: Capture test report
+        shell: bash
+        run: |
+          set +e
+          pytest --cov=xasp --cov-report=term-missing > pytest-governance.txt 2>&1
+          status=$?
+          cat pytest-governance.txt
+          echo "$status" > pytest-governance.status
+          exit 0
+
+      - name: Upload test report
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-governance
+          path: |
+            pytest-governance.txt
+            pytest-governance.status
+          if-no-files-found: error
+
+      - name: Enforce passing tests
+        shell: bash
+        run: test "$(cat pytest-governance.status)" = "0"
 
       - name: JavaScript syntax
         run: |
