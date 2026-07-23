@@ -10,12 +10,12 @@ import pandas as pd
 
 from .anchor_dataset import AnchorDatasetStore
 from .envelope_engine_v2 import EnvelopeEngineV2, EnvelopePaths, HORIZONS
-from .extended_runtime import ExtendedHorizonRealDataPlatform
+from .memory_safe_runtime import MemorySafeExtendedHorizonPlatform
 from .platform_runtime import PlatformStatus, RuntimeConfig, RuntimePaths
 from .production_report_v2 import build_production_report, save_production_report
 
 
-class RealDataPlatformV2(ExtendedHorizonRealDataPlatform):
+class RealDataPlatformV2(MemorySafeExtendedHorizonPlatform):
     """Run independent Model A and Model B horizons through eight hours."""
 
     def __init__(self, paths: RuntimePaths, config: RuntimeConfig) -> None:
