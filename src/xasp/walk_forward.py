@@ -2,7 +2,9 @@
 
 The splitter is model-agnostic. It receives already point-in-time rows and
 returns chronological train/calibration/test folds with horizon purge and
-embargo applied at every boundary.
+embargo applied at every boundary. Rare-event support is counted both as rows
+and as independent event clusters so one market shock cannot masquerade as
+many independent observations through overlapping anchors.
 """
 
 from __future__ import annotations
@@ -156,27 +158,97 @@ def build_purged_walk_forward_folds(
     return folds
 
 
+def _event_times(
+    frame: pd.DataFrame,
+    *,
+    label: str,
+    label_column: str,
+    event_time_column: str,
+) -> list[int]:
+    subset = frame[frame[label_column] == label]
+    if subset.empty:
+        return []
+    if event_time_column in subset.columns:
+        event_time = pd.to_numeric(subset[event_time_column], errors="coerce")
+        fallback = pd.to_numeric(subset["anchor_timestamp_ms"], errors="raise")
+        values = event_time.fillna(fallback)
+    else:
+        values = pd.to_numeric(subset["anchor_timestamp_ms"], errors="raise")
+    return sorted({int(value) for value in values.dropna().tolist()})
+
+
+def count_independent_event_clusters(
+    frame: pd.DataFrame,
+    *,
+    label: str,
+    cluster_separation_ms: int,
+    label_column: str = "label",
+    event_time_column: str = "touch_timestamp_ms",
+) -> int:
+    """Count separated event episodes instead of overlapping positive anchor rows."""
+
+    if cluster_separation_ms < 1:
+        raise ValueError("cluster_separation_ms must be positive")
+    if label_column not in frame.columns:
+        raise ValueError(f"event cluster frame missing label column: {label_column}")
+    times = _event_times(
+        frame,
+        label=label,
+        label_column=label_column,
+        event_time_column=event_time_column,
+    )
+    if not times:
+        return 0
+    clusters = 1
+    previous = times[0]
+    for value in times[1:]:
+        if value - previous > cluster_separation_ms:
+            clusters += 1
+        previous = value
+    return clusters
+
+
 def summarize_event_support(
     folds: list[WalkForwardFold],
     *,
     label_column: str = "label",
     event_labels: tuple[str, ...] = ("UP_10", "DOWN_10"),
+    cluster_separation_ms: int = 60_000,
+    event_time_column: str = "touch_timestamp_ms",
 ) -> list[dict[str, Any]]:
-    """Report rare-event support independently for every untouched test fold."""
+    """Report row and independent-cluster support for every untouched test fold."""
 
+    if cluster_separation_ms < 1:
+        raise ValueError("cluster_separation_ms must be positive")
     summaries: list[dict[str, Any]] = []
     for fold in folds:
         if label_column not in fold.test.columns:
             raise ValueError(f"walk-forward test fold missing label column: {label_column}")
-        counts = {
+        row_counts = {
             label: int((fold.test[label_column] == label).sum()) for label in event_labels
+        }
+        cluster_counts = {
+            label: count_independent_event_clusters(
+                fold.test,
+                label=label,
+                cluster_separation_ms=cluster_separation_ms,
+                label_column=label_column,
+                event_time_column=event_time_column,
+            )
+            for label in event_labels
         }
         summaries.append(
             {
                 "fold_index": fold.fold_index,
                 "test_rows": int(len(fold.test)),
-                "event_support": counts,
-                "all_events_present": all(value > 0 for value in counts.values()),
+                "event_support": row_counts,
+                "independent_event_clusters": cluster_counts,
+                "all_events_present": all(value > 0 for value in row_counts.values()),
+                "all_cluster_types_present": all(
+                    value > 0 for value in cluster_counts.values()
+                ),
+                "cluster_separation_ms": cluster_separation_ms,
+                "event_time_column": event_time_column,
                 "test_start_ms": fold.audit["test_start_ms"],
                 "test_end_ms": fold.audit["test_end_ms"],
             }
@@ -188,22 +260,28 @@ def audit_directional_support_gate(
     folds: list[WalkForwardFold],
     *,
     minimum_support_per_event_class: int = 10,
+    minimum_independent_clusters_per_event_class: int = 3,
     minimum_eligible_folds: int = 2,
+    cluster_separation_ms: int = 60_000,
     label_column: str = "label",
     event_labels: tuple[str, ...] = ("UP_10", "DOWN_10"),
+    event_time_column: str = "touch_timestamp_ms",
 ) -> dict[str, Any]:
-    """Fail closed unless multiple untouched periods contain both event directions.
+    """Fail closed unless multiple untouched periods contain independent events.
 
     This is a support pre-gate, not a performance claim. A fold becomes eligible
-    only when every requested directional class has enough observed examples in
-    that fold's untouched test period. Model precision and calibration must be
-    evaluated separately after this pre-gate passes.
+    only when every directional class has enough rows and independent clusters
+    in that fold's untouched test period.
     """
 
     if minimum_support_per_event_class < 1:
         raise ValueError("minimum_support_per_event_class must be positive")
+    if minimum_independent_clusters_per_event_class < 1:
+        raise ValueError("minimum_independent_clusters_per_event_class must be positive")
     if minimum_eligible_folds < 1:
         raise ValueError("minimum_eligible_folds must be positive")
+    if cluster_separation_ms < 1:
+        raise ValueError("cluster_separation_ms must be positive")
     if not event_labels:
         raise ValueError("event_labels cannot be empty")
 
@@ -211,19 +289,28 @@ def audit_directional_support_gate(
         folds,
         label_column=label_column,
         event_labels=event_labels,
+        cluster_separation_ms=cluster_separation_ms,
+        event_time_column=event_time_column,
     )
     aggregate_support = {label: 0 for label in event_labels}
+    aggregate_clusters = {label: 0 for label in event_labels}
     eligible_fold_indices: list[int] = []
     for summary in summaries:
         support = summary["event_support"]
+        clusters = summary["independent_event_clusters"]
         for label in event_labels:
             aggregate_support[label] += int(support[label])
+            aggregate_clusters[label] += int(clusters[label])
         eligible = all(
             int(support[label]) >= minimum_support_per_event_class
+            and int(clusters[label]) >= minimum_independent_clusters_per_event_class
             for label in event_labels
         )
         summary["eligible_for_directional_performance_evaluation"] = eligible
         summary["minimum_support_per_event_class"] = minimum_support_per_event_class
+        summary["minimum_independent_clusters_per_event_class"] = (
+            minimum_independent_clusters_per_event_class
+        )
         if eligible:
             eligible_fold_indices.append(int(summary["fold_index"]))
 
@@ -231,17 +318,23 @@ def audit_directional_support_gate(
     return {
         "status": "PASS" if passed else "WAIT",
         "reason": (
-            "multiple_untouched_periods_have_sufficient_directional_support"
+            "multiple_untouched_periods_have_sufficient_independent_directional_events"
             if passed
-            else "insufficient_directional_support_across_untouched_periods"
+            else "insufficient_independent_directional_events_across_untouched_periods"
         ),
-        "methodology": "purged-expanding-walk-forward-directional-support-v1",
+        "methodology": "purged-walk-forward-independent-event-clusters-v2",
         "fold_count": len(folds),
         "eligible_fold_count": len(eligible_fold_indices),
         "minimum_eligible_folds": minimum_eligible_folds,
         "minimum_support_per_event_class": minimum_support_per_event_class,
+        "minimum_independent_clusters_per_event_class": (
+            minimum_independent_clusters_per_event_class
+        ),
+        "cluster_separation_ms": cluster_separation_ms,
+        "event_time_column": event_time_column,
         "eligible_fold_indices": eligible_fold_indices,
         "aggregate_event_support": aggregate_support,
+        "aggregate_independent_event_clusters": aggregate_clusters,
         "folds": summaries,
         "note": (
             "Passing this support gate only permits fold-level performance evaluation; "
@@ -255,5 +348,6 @@ __all__ = [
     "WalkForwardFold",
     "audit_directional_support_gate",
     "build_purged_walk_forward_folds",
+    "count_independent_event_clusters",
     "summarize_event_support",
 ]
