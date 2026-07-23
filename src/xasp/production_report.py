@@ -16,6 +16,9 @@ REQUIRED_ENVELOPE_ROWS_PER_HORIZON = 100
 REQUIRED_EMPIRICAL_PRECISION = 0.85
 REQUIRED_MARGINAL_INTERVAL_COVERAGE = 0.85
 EXPECTED_HORIZONS = {15, 30, 45, 60}
+LEGACY_DIRECTIONAL_SAMPLE_WARNING = (
+    "insufficient_high_confidence_directional_first_touch_sample"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -265,10 +268,22 @@ def build_production_report(
     first_touch = _first_touch_metrics(ledger)
     envelope = _envelope_metrics(envelope_predictions, prices)
     warnings: list[str] = []
+
+    directional_rows = int(first_touch.get("directional_high_confidence_rows", 0))
+    if directional_rows < REQUIRED_DIRECTIONAL_PRODUCTION_ROWS:
+        # Preserve the original stable warning token for dashboards and tests while
+        # also emitting the richer state/reason warning below.
+        warnings.append(LEGACY_DIRECTIONAL_SAMPLE_WARNING)
     if first_touch.get("status") != "READY":
-        warnings.append(f"first_touch_{first_touch.get('status', 'WAIT').lower()}:{first_touch.get('reason')}")
+        warnings.append(
+            f"first_touch_{first_touch.get('status', 'WAIT').lower()}:"
+            f"{first_touch.get('reason')}"
+        )
     if envelope.get("status") != "READY":
-        warnings.append(f"future_envelope_{envelope.get('status', 'WAIT').lower()}:{envelope.get('reason')}")
+        warnings.append(
+            f"future_envelope_{envelope.get('status', 'WAIT').lower()}:"
+            f"{envelope.get('reason')}"
+        )
     if runtime_status.get("state") == "WAIT":
         warnings.append(f"runtime_wait:{runtime_status.get('reason')}")
     elif runtime_status.get("state") == "PARTIAL_RESEARCH":
