@@ -2,7 +2,8 @@
 
 The promotion gate is deliberately event-specific. Correctly predicting the
 very common ``NO_EVENT`` class cannot qualify a ±10% directional model as
-research-ready.
+research-ready. Before any model performance claim, multiple purged untouched
+periods must contain enough examples of both directional event classes.
 """
 
 from __future__ import annotations
@@ -25,6 +26,12 @@ from sklearn.metrics import (
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 
+from .walk_forward import (
+    WalkForwardConfig,
+    audit_directional_support_gate,
+    build_purged_walk_forward_folds,
+)
+
 try:
     from sklearn.frozen import FrozenEstimator
 except ImportError:  # scikit-learn < 1.6
@@ -33,7 +40,7 @@ except ImportError:  # scikit-learn < 1.6
 ALLOWED_LABELS = ("UP_10", "DOWN_10", "NO_EVENT")
 EVENT_LABELS = ("UP_10", "DOWN_10")
 EXCLUDED_LABELS = ("AMBIGUOUS", "INCOMPLETE")
-FIRST_TOUCH_GATE_VERSION = "first-touch-directional-event-gate-v2"
+FIRST_TOUCH_GATE_VERSION = "first-touch-purged-walk-forward-directional-gate-v3"
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +57,13 @@ class BaselineConfig:
     label_horizon_ms: int = 60_000
     embargo_ms: int | None = None
     calibration_bins: int = 10
+    walk_forward_folds: int = 4
+    walk_forward_initial_train_fraction: float = 0.50
+    walk_forward_calibration_fraction: float = 0.10
+    walk_forward_test_fraction: float = 0.10
+    walk_forward_step_fraction: float = 0.10
+    walk_forward_minimum_rows_per_partition: int = 30
+    minimum_eligible_walk_forward_folds: int = 2
 
     def __post_init__(self) -> None:
         if not 0.5 <= self.train_fraction < 0.9:
@@ -78,6 +92,14 @@ class BaselineConfig:
             raise ValueError("embargo_ms must be non-negative")
         if self.calibration_bins < 2:
             raise ValueError("calibration_bins must be at least two")
+        if self.walk_forward_folds < 2:
+            raise ValueError("walk_forward_folds must be at least two")
+        if self.walk_forward_minimum_rows_per_partition < 1:
+            raise ValueError("walk_forward_minimum_rows_per_partition must be positive")
+        if not 1 <= self.minimum_eligible_walk_forward_folds <= self.walk_forward_folds:
+            raise ValueError(
+                "minimum_eligible_walk_forward_folds must be within walk_forward_folds"
+            )
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,18 +119,25 @@ class BaselineReport:
         path.write_text(json.dumps(asdict(self), indent=2, sort_keys=True), encoding="utf-8")
 
 
+def _ensure_horizon_end(frame: pd.DataFrame, label_horizon_ms: int) -> pd.DataFrame:
+    normalized = frame.copy()
+    if "horizon_end_ms" not in normalized.columns:
+        normalized["horizon_end_ms"] = (
+            normalized["anchor_timestamp_ms"].astype("int64") + label_horizon_ms
+        )
+    return normalized
+
+
 def _purged_temporal_split(
     frame: pd.DataFrame,
     config: BaselineConfig,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict[str, int]]:
     """Create chronological train/calibration/test partitions with boundary purge."""
 
-    ordered = frame.sort_values("anchor_timestamp_ms", ignore_index=True).copy()
-    if "horizon_end_ms" not in ordered.columns:
-        ordered["horizon_end_ms"] = (
-            ordered["anchor_timestamp_ms"].astype("int64") + config.label_horizon_ms
-        )
-
+    ordered = _ensure_horizon_end(
+        frame.sort_values("anchor_timestamp_ms", ignore_index=True),
+        config.label_horizon_ms,
+    )
     n_rows = len(ordered)
     train_cut_index = int(n_rows * config.train_fraction)
     calibration_cut_index = int(
@@ -134,16 +163,19 @@ def _purged_temporal_split(
         (raw_calibration["anchor_timestamp_ms"] >= calibration_boundary + embargo_ms)
         & (raw_calibration["horizon_end_ms"] <= test_boundary)
     ].copy()
-    test = raw_test[
-        raw_test["anchor_timestamp_ms"] >= test_boundary + embargo_ms
-    ].copy()
+    test = raw_test[raw_test["anchor_timestamp_ms"] >= test_boundary + embargo_ms].copy()
 
     audit = {
         "raw_train_rows": int(len(raw_train)),
         "raw_calibration_rows": int(len(raw_calibration)),
         "raw_test_rows": int(len(raw_test)),
+        "train_rows": int(len(train)),
+        "calibration_rows": int(len(calibration)),
+        "test_rows": int(len(test)),
         "purged_train_rows": int(len(raw_train) - len(train)),
-        "purged_or_embargoed_calibration_rows": int(len(raw_calibration) - len(calibration)),
+        "purged_or_embargoed_calibration_rows": int(
+            len(raw_calibration) - len(calibration)
+        ),
         "embargoed_test_rows": int(len(raw_test) - len(test)),
         "calibration_boundary_ms": calibration_boundary,
         "test_boundary_ms": test_boundary,
@@ -210,7 +242,9 @@ def _expected_calibration_error(
         if count == 0:
             continue
         weight = count / len(confidence)
-        ece += weight * abs(float(correctness[mask].mean()) - float(confidence[mask].mean()))
+        ece += weight * abs(
+            float(correctness[mask].mean()) - float(confidence[mask].mean())
+        )
     return float(ece)
 
 
@@ -273,9 +307,7 @@ def _directional_gate(
         high_confidence_by_event[label] = {
             "predicted_count": count,
             "precision": (
-                None
-                if count == 0
-                else float(np.mean(actual[class_mask] == label))
+                None if count == 0 else float(np.mean(actual[class_mask] == label))
             ),
             "test_support": test_event_support[label],
         }
@@ -296,7 +328,9 @@ def _directional_gate(
         "directional_test_support": test_event_support,
         "mean_directional_probability_mass": float(event_probability_mass.mean()),
         "required_empirical_precision": config.required_empirical_precision,
-        "minimum_event_test_support_per_class": config.minimum_event_test_support_per_class,
+        "minimum_event_test_support_per_class": (
+            config.minimum_event_test_support_per_class
+        ),
         "minimum_high_confidence_event_predictions": (
             config.minimum_high_confidence_event_predictions
         ),
@@ -325,12 +359,55 @@ def _directional_gate(
     return True, "directional_empirical_85pct_gate_passed_not_trading_promoted", metrics
 
 
+def _build_walk_forward_support_audit(
+    usable: pd.DataFrame,
+    config: BaselineConfig,
+) -> dict[str, Any]:
+    walk_forward_config = WalkForwardConfig(
+        n_folds=config.walk_forward_folds,
+        initial_train_fraction=config.walk_forward_initial_train_fraction,
+        calibration_fraction=config.walk_forward_calibration_fraction,
+        test_fraction=config.walk_forward_test_fraction,
+        step_fraction=config.walk_forward_step_fraction,
+        label_horizon_ms=config.label_horizon_ms,
+        embargo_ms=config.embargo_ms,
+        minimum_rows_per_partition=config.walk_forward_minimum_rows_per_partition,
+    )
+    try:
+        folds = build_purged_walk_forward_folds(usable, walk_forward_config)
+    except ValueError as exc:
+        return {
+            "status": "WAIT",
+            "reason": "walk_forward_split_unavailable",
+            "methodology": "purged-expanding-walk-forward-directional-support-v1",
+            "error": str(exc),
+            "fold_count": 0,
+            "eligible_fold_count": 0,
+            "minimum_eligible_folds": config.minimum_eligible_walk_forward_folds,
+            "minimum_support_per_event_class": (
+                config.minimum_event_test_support_per_class
+            ),
+            "folds": [],
+            "note": (
+                "No model performance claim is permitted when purged walk-forward "
+                "partitions cannot be constructed."
+            ),
+        }
+    return audit_directional_support_gate(
+        folds,
+        minimum_support_per_event_class=config.minimum_event_test_support_per_class,
+        minimum_eligible_folds=config.minimum_eligible_walk_forward_folds,
+        label_column="label",
+        event_labels=EVENT_LABELS,
+    )
+
+
 def train_multinomial_baseline(
     dataset: pd.DataFrame,
     feature_names: list[str],
     config: BaselineConfig = BaselineConfig(),
 ) -> tuple[Pipeline | CalibratedClassifierCV | None, BaselineReport]:
-    """Train on observed FINAL labels and fail closed unless event gates pass."""
+    """Train on observed FINAL labels and fail closed unless all evidence gates pass."""
 
     required = {"anchor_timestamp_ms", "label", "status", *feature_names}
     missing = required - set(dataset.columns)
@@ -338,12 +415,31 @@ def train_multinomial_baseline(
         raise ValueError(f"baseline dataset missing columns: {sorted(missing)}")
     usable = dataset[
         (dataset["status"] == "FINAL") & dataset["label"].isin(ALLOWED_LABELS)
-    ].copy().sort_values("anchor_timestamp_ms", ignore_index=True)
+    ].copy()
+    usable = _ensure_horizon_end(
+        usable.sort_values("anchor_timestamp_ms", ignore_index=True),
+        config.label_horizon_ms,
+    )
     counts = {label: int((usable["label"] == label).sum()) for label in ALLOWED_LABELS}
     if len(usable) < config.minimum_rows:
         return None, _wait_report("insufficient_final_rows", usable, feature_names, counts)
     if sum(value > 0 for value in counts.values()) < 2:
-        return None, _wait_report("insufficient_label_diversity", usable, feature_names, counts)
+        return None, _wait_report(
+            "insufficient_label_diversity", usable, feature_names, counts
+        )
+
+    walk_forward_support = _build_walk_forward_support_audit(usable, config)
+    if walk_forward_support.get("status") != "PASS":
+        return None, _wait_report(
+            str(walk_forward_support.get("reason", "walk_forward_support_gate_failed")),
+            usable,
+            feature_names,
+            counts,
+            {
+                "gate_methodology_version": FIRST_TOUCH_GATE_VERSION,
+                "walk_forward_support_audit": walk_forward_support,
+            },
+        )
 
     train, calibration, test, split_audit = _purged_temporal_split(usable, config)
     if train.empty or calibration.empty or test.empty:
@@ -352,7 +448,11 @@ def train_multinomial_baseline(
             usable,
             feature_names,
             counts,
-            {"split_audit": split_audit},
+            {
+                "gate_methodology_version": FIRST_TOUCH_GATE_VERSION,
+                "walk_forward_support_audit": walk_forward_support,
+                "split_audit": split_audit,
+            },
         )
     if train["label"].nunique() < 2:
         return None, _wait_report(
@@ -360,7 +460,11 @@ def train_multinomial_baseline(
             usable,
             feature_names,
             counts,
-            {"split_audit": split_audit},
+            {
+                "gate_methodology_version": FIRST_TOUCH_GATE_VERSION,
+                "walk_forward_support_audit": walk_forward_support,
+                "split_audit": split_audit,
+            },
         )
 
     model = _build_pipeline(config)
@@ -428,6 +532,7 @@ def train_multinomial_baseline(
         counts,
         {
             "split_audit": split_audit,
+            "walk_forward_support_audit": walk_forward_support,
             "per_class": per_class,
             "expected_calibration_error": ece,
             **gate_metrics,
