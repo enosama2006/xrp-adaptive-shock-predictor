@@ -1,0 +1,1 @@
+Clean verification trigger for empirical discovery 1.6.0.
