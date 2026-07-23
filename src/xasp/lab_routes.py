@@ -21,10 +21,6 @@ class LabPredictionRequest(BaseModel):
     feature_values: dict[str, float | None] = Field(default_factory=dict)
 
 
-class LabPredictionResponse(BaseModel):
-    payload: dict[str, object]
-
-
 def build_lab_router(
     platform: RealDataPlatformV2,
     web_root: Path = Path("."),
@@ -32,15 +28,15 @@ def build_lab_router(
     router = APIRouter(tags=["model-lab"])
     service = ModelLabService(platform)
 
-    @router.get("/api/lab/overview")
+    @router.get("/lab/overview")
     def lab_overview() -> dict[str, object]:
         return service.overview_payload()
 
-    @router.get("/api/lab/current-inputs")
+    @router.get("/lab/current-inputs")
     def lab_current_inputs() -> dict[str, object]:
         return service.current_inputs_payload()
 
-    @router.post("/api/lab/predict")
+    @router.post("/lab/predict")
     def lab_predict(request: LabPredictionRequest) -> dict[str, object]:
         return service.predict_payload(
             model_key=request.model_key,
@@ -50,7 +46,7 @@ def build_lab_router(
             feature_values=request.feature_values,
         )
 
-    @router.get("/lab", include_in_schema=False)
+    @router.get("/model-lab", include_in_schema=False)
     def lab_page() -> FileResponse:
         return FileResponse(web_root / "lab.html")
 
