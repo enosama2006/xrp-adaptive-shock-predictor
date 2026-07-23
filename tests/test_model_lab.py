@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from xasp.lab_routes import build_lab_router
 from xasp.model_lab import MODEL_A_KEY, MODEL_B_KEY, ModelLabService
 from xasp.platform_api import create_app
 from xasp.platform_runtime import RuntimeConfig, RuntimePaths
@@ -28,14 +29,16 @@ def test_lab_routes_are_published_and_static_page_is_mounted(tmp_path: Path) -> 
     platform = RealDataPlatformV2(_paths(tmp_path), RuntimeConfig(bootstrap_start_ms=1))
     app = create_app(platform, web_root=Path("."))
     openapi_paths = set(app.openapi()["paths"])
-    route_paths = {getattr(route, "path", None) for route in app.routes}
+    lab_route_paths = {
+        getattr(route, "path", None) for route in build_lab_router(platform).routes
+    }
 
     assert "/api/lab/overview" in openapi_paths
     assert "/api/lab/current-inputs" in openapi_paths
     assert "/api/lab/predict" in openapi_paths
-    assert "/api/model-lab" in route_paths
-    assert "/api/lab.js" in route_paths
-    assert "/api/lab.css" in route_paths
+    assert "/model-lab" in lab_route_paths
+    assert "/lab.js" in lab_route_paths
+    assert "/lab.css" in lab_route_paths
 
 
 def test_lab_is_fail_closed_without_governed_model_bundle(tmp_path: Path) -> None:
