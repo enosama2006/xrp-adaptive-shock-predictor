@@ -50,10 +50,24 @@ def _valid_bundle(bundle: Any) -> bool:
     return bool(keys) and keys.issubset(set(HORIZONS))
 
 
-def _anchor_horizons(frame: pd.DataFrame) -> set[int]:
+def _anchor_horizon_matrix_complete(frame: pd.DataFrame) -> bool:
+    """Require one row for every configured horizon at every anchor timestamp."""
+
     if frame.empty:
-        return set()
-    return {int(value) for value in frame["horizon_minutes"].dropna().unique()}
+        return False
+    expected = set(HORIZONS)
+    actual = {int(value) for value in frame["horizon_minutes"].dropna().unique()}
+    if actual != expected:
+        return False
+    anchor_count = int(frame["anchor_timestamp_ms"].nunique())
+    if anchor_count <= 0:
+        return False
+    counts = (
+        frame.groupby("horizon_minutes")["anchor_timestamp_ms"]
+        .nunique()
+        .to_dict()
+    )
+    return all(int(counts.get(horizon, 0)) == anchor_count for horizon in HORIZONS)
 
 
 class ExtendedHorizonRealDataPlatform(RealDataPlatform):
@@ -107,8 +121,7 @@ class ExtendedHorizonRealDataPlatform(RealDataPlatform):
     def _ensure_extended_anchor_horizons(self) -> pd.DataFrame:
         store = AnchorDatasetStore(self.paths.anchors)
         existing = store.load()
-        expected = set(HORIZONS)
-        if _anchor_horizons(existing) == expected:
+        if _anchor_horizon_matrix_complete(existing):
             return existing
 
         self._set_lifecycle(
@@ -145,6 +158,8 @@ class ExtendedHorizonRealDataPlatform(RealDataPlatform):
             state_store=DatasetStateStore(self.paths.state),
             latest_timestamp_ms=points[-1].timestamp_ms,
         )
+        if not _anchor_horizon_matrix_complete(result):
+            raise RuntimeError("extended anchor horizon matrix rebuild is incomplete")
         self.status.anchor_rows = int(len(result))
         self.status.final_rows = int((result["status"] == "FINAL").sum())
         self.status.pending_rows = int((result["status"] == "PENDING").sum())
