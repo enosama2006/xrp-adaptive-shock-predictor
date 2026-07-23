@@ -13,7 +13,7 @@
       <div>
         <p class="eyebrow">XRP ADAPTIVE SHOCK PREDICTOR</p>
         <h1>نموذجان مستقلان، بيانات حقيقية، ونتائج منفصلة بالكامل</h1>
-        <p class="subtitle">تُجمع شموع XRP المكتملة كل دقيقة، ويُبنى تاريخ تدريبي لا يقل عن سنة. يصدر كل نموذج توقعاته وتقاريره الخاصة دون دمج النتائج أو إخفاء حالة عدم الجاهزية.</p>
+        <p class="subtitle">تُجمع شموع XRP المكتملة كل دقيقة، ويُبنى تاريخ تدريبي متعدد السنوات قابل للاستئناف والتحقق. يصدر كل نموذج توقعاته وتقاريره الخاصة دون دمج النتائج أو إخفاء حالة عدم الجاهزية.</p>
       </div>
       <div class="connection-card">
         <span id="connectionDot" class="dot pending"></span>
@@ -24,7 +24,7 @@
     <section class="status-grid">
       <article class="metric-card"><span>سعر XRP/USDT</span><strong id="xrpPrice">—</strong><small id="xrpReference">لا يوجد مرجع بعد</small></article>
       <article class="metric-card"><span>سجل الأسعار</span><strong id="priceRows">0</strong><small>شموع دقيقة حقيقية محفوظة</small></article>
-      <article class="metric-card"><span>بداية البيانات</span><strong id="dataStart">—</strong><small>الهدف: سنة كاملة على الأقل</small></article>
+      <article class="metric-card"><span>بداية البيانات</span><strong id="dataStart">—</strong><small>قابل للتوسعة حتى خمس سنوات وأكثر</small></article>
       <article class="metric-card"><span>حالة المنصة</span><strong id="platformState" class="wait">WAIT</strong><small id="platformReason">not_started</small></article>
     </section>
 
@@ -46,9 +46,30 @@
       </div>
     </section>
 
+    <section class="panel lifecycle-panel" aria-labelledby="governanceTitle">
+      <div class="lifecycle-heading">
+        <div>
+          <span class="section-kicker">سلامة البيانات والتاريخ</span>
+          <h2 id="governanceTitle">أدلة التخزين والتوسعة التاريخية</h2>
+          <p>يعرض هذا القسم تقرير سلامة الشموع الحقيقية وحالة استئناف تنزيل السنوات الأقدم. لا تُملأ الفجوات اصطناعيًا.</p>
+        </div>
+        <strong id="governanceState">WAIT</strong>
+      </div>
+      <div class="lifecycle-stats">
+        <div><span>سلامة البيانات</span><strong id="integrityStatus">WAIT</strong></div>
+        <div><span>تغطية الدقائق</span><strong id="integrityCoverage">—</strong></div>
+        <div><span>الدقائق المفقودة</span><strong id="integrityMissing">—</strong></div>
+        <div><span>بصمة البيانات</span><strong id="integrityFingerprint">—</strong></div>
+        <div><span>توسعة التاريخ</span><strong id="historyExpansionStatus">IDLE</strong></div>
+        <div><span>نسبة التقدم</span><strong id="historyExpansionProgress">0%</strong></div>
+        <div><span>الصفوف المقبولة</span><strong id="historyExpansionRows">0</strong></div>
+        <div><span>آخر تحديث</span><strong id="historyExpansionUpdated">—</strong></div>
+      </div>
+    </section>
+
     <section class="model-section shock-section">
       <div class="model-header">
-        <div><span class="model-number">MODEL A</span><h2>نموذج الصدمة التكيفي</h2><p>Adaptive Shock Magnitude Model — يتوقع نطاق الحركة الصاعدة والهابطة وشدة الصدمة المحتملة خلال 15/30/45/60 دقيقة.</p></div>
+        <div><span class="model-number">MODEL A</span><h2>نموذج الصدمة التكيفي</h2><p>Adaptive Shock Magnitude Model — يتوقع نطاق الحركة الصاعدة والهابطة وشدة الصدمة المحتملة من 15 دقيقة حتى 8 ساعات.</p></div>
         <div class="model-state"><span>الحالة</span><strong id="shockState">WAIT</strong><small id="shockVersion">لا يوجد نموذج مدرّب</small></div>
       </div>
       <div id="shockHorizonGrid" class="horizon-card-grid"></div>
@@ -75,8 +96,9 @@
       <div class="table-wrap"><table><thead><tr><th>وقت الإصدار</th><th>الأفق</th><th>السعر</th><th>+10%</th><th>−10%</th><th>لا حدث</th><th>الحالة</th><th>النتيجة</th></tr></thead><tbody id="ledgerBody"><tr><td colspan="8" class="empty">لم تُسجل توقعات بعد</td></tr></tbody></table></div>
     </section>
 
-    <section class="governance-note"><strong>الحكم الحالي:</strong> ظهور الصناديق لا يعني أن النموذج يعمل. تعرض المنصة مراحل جمع السنة التاريخية وبناء الخصائص والتدريب صراحةً، وتبقى WAIT إلى أن تجتاز كل بوابات الأدلة خارج العينة.</section>
+    <section class="governance-note"><strong>الحكم الحالي:</strong> ظهور الصناديق لا يعني أن النموذج يعمل. تعرض المنصة مراحل جمع التاريخ وبناء الخصائص والتدريب صراحةً، وتبقى WAIT إلى أن تجتاز كل بوابات الأدلة خارج العينة.</section>
   </main>
   <script type="module" src="app.js"></script>
+  <script type="module" src="governance.js"></script>
 </body>
 </html>
