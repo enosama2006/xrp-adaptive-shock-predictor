@@ -1,0 +1,1 @@
+Verification trigger for XASP 1.6.0 empirical first-passage discovery.
