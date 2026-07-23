@@ -40,21 +40,50 @@ const MESSAGE_LABELS = {
   building_observed_future_excursion_targets: "استخراج أعلى وأدنى حركة مستقبلية مرصودة لنموذج A.",
   model_a_targets_ready_for_training_gate: "اكتمل بناء أهداف نموذج A.",
   training_first_touch_challenger: "تدريب وتقييم نموذج الوصول الأول لكل أفق زمني.",
+  training_first_touch_directional_challenger: "اختبار قدرة نموذج B على توقع +10% أو −10%، دون احتساب لا حدث كنجاح للبوابة.",
   training_future_excursion_challenger: "تدريب وتقييم نموذج نطاق الصدمة لكل أفق زمني.",
   model_b_evidence_gate_failed_or_insufficient: "الأدلة أو العينات غير كافية لنشر نموذج B.",
+  model_b_directional_event_gate_failed_or_insufficient: "لم تتوفر أدلة اختبار كافية لاتجاهي +10% و−10%.",
+  model_b_challenger_rejected_champion_retained: "رُفض النموذج الجديد واحتُفظ بالنموذج المعتمد السابق.",
   model_a_evidence_gate_failed_or_insufficient: "الأدلة أو تغطية النطاق غير كافية لنشر نموذج A.",
+  model_a_challenger_rejected_champion_retained: "رُفض نموذج A الجديد واحتُفظ بالنموذج السابق.",
   model_b_empirical_gate_passed: "اجتاز نموذج B بوابته البحثية، دون ترقية للتداول.",
   model_a_empirical_gate_passed: "اجتاز نموذج A بوابته البحثية، دون ترقية للتداول.",
   creating_model_b_predictions: "إنشاء توقعات Model B قبل معرفة النتائج.",
   model_b_predictions_written_before_outcomes: "تم تثبيت توقعات Model B في السجل قبل نضج النتائج.",
   creating_future_excursion_predictions: "إنشاء نطاقات Model A قبل معرفة النتائج.",
-  model_a_predictions_written_before_outcomes: "تم تثبيت توقعات Model A قبل نضج النتائج.",
+  model_a_predictions_written_before_outcomes: "تم تثبيت توقعات Model A قبل معرفة النتائج.",
   maturing_eligible_model_b_predictions: "مطابقة التوقعات التي انتهى أفقها مع المسار الحقيقي.",
   eligible_model_b_outcomes_resolved: "اكتمل تقييم التوقعات المؤهلة.",
   building_dual_model_production_report: "حساب تقارير الأداء المنفصلة للنموذجين.",
   production_report_saved: "تم حفظ تقرير الأداء الحالي.",
   cycle_complete_waiting_for_next_completed_minute: "اكتملت الدورة، والمنصة تنتظر شمعة دقيقة مكتملة جديدة.",
 };
+
+const REASON_LABELS = {
+  model_a_ready_model_b_directional_gate_wait: "نموذج A جاهز؛ نموذج B ينتظر أدلة اتجاهية كافية",
+  directional_event_evidence_gate_failed: "فشلت بوابة الأدلة الاتجاهية لنموذج B",
+  legacy_first_touch_gate_invalidated: "أُبطلت نسخة Model B القديمة لأنها اعتمدت على لا حدث",
+  both_model_evidence_gates_pending: "بوابتا النموذجين ما زالتا قيد التحقق",
+  dual_models_research_monitoring_only: "النموذجان جاهزان للمراقبة البحثية فقط",
+  model_b_ready_model_a_evidence_gate_wait: "نموذج B جاهز؛ نموذج A ينتظر بوابة التغطية",
+  no_valid_adaptive_shock_bundle: "لا توجد نسخة صالحة من نموذج A",
+  no_first_touch_training_report: "لا يوجد تقرير تدريب لنموذج B بعد",
+  report_was_generated_by_an_older_gate_or_training_is_still_running: "التقرير قديم أو أن التدريب الجديد لم يكتمل بعد",
+  insufficient_directional_event_test_support: "فترة الاختبار لا تحتوي حالات كافية من +10% و−10%",
+  insufficient_high_confidence_directional_predictions: "لا توجد توقعات اتجاهية عالية الثقة بعدد كافٍ",
+  insufficient_high_confidence_predictions_per_direction: "أحد الاتجاهين لا يملك توقعات عالية الثقة كافية",
+  directional_empirical_precision_below_required_85pct: "دقة التوقعات الاتجاهية أقل من 85%",
+  no_predictions: "لا توجد توقعات من نسخة معتمدة",
+  no_matured_predictions: "التوقعات لم تنضج بعد",
+  insufficient_matured_predictions_per_horizon: "العينات الحية الناضجة غير كافية لكل أفق",
+  marginal_interval_coverage_below_required_85pct: "تغطية أحد نطاقي الصعود أو الهبوط أقل من 85%",
+  envelope_production_monitoring_gate_passed: "اجتاز نموذج A المراقبة الحية",
+};
+
+function reasonLabel(value) {
+  return REASON_LABELS[value] || value || "—";
+}
 
 function pct(value) {
   return Number.isFinite(value) ? `${(value * 100).toFixed(1)}%` : "—";
@@ -85,12 +114,40 @@ function waitShockCards() {
     </article>`).join("");
 }
 
-function waitTouchCards() {
-  $("touchHorizonGrid").innerHTML = HORIZONS.map((h) => `
-    <article class="horizon-model-card wait-card">
-      <header><span>${h} دقيقة</span><strong>WAIT</strong></header>
-      <dl><div><dt>+10% أولًا</dt><dd>—</dd></div><div><dt>−10% أولًا</dt><dd>—</dd></div><div><dt>لا حدث</dt><dd>—</dd></div></dl>
-    </article>`).join("");
+function horizonReport(report, horizon) {
+  const value = report && report[String(horizon)];
+  return value && typeof value === "object" ? value : {};
+}
+
+function directionalSupport(report, horizon) {
+  const current = horizonReport(report, horizon);
+  const metrics = current.metrics || {};
+  const explicit = metrics.directional_test_support || {};
+  const perClass = metrics.per_class || {};
+  return {
+    up: Number(explicit.UP_10 ?? perClass.UP_10?.support ?? 0),
+    down: Number(explicit.DOWN_10 ?? perClass.DOWN_10?.support ?? 0),
+    reason: current.reason || report?._meta?.reason || "no_first_touch_training_report",
+    status: current.status || report?._meta?.status || "WAIT",
+  };
+}
+
+function waitTouchCards(report = {}, platformReason = "") {
+  $("touchHorizonGrid").innerHTML = HORIZONS.map((h) => {
+    const evidence = directionalSupport(report, h);
+    const reason = evidence.reason === "empirical_85pct_gate_passed_not_trading_promoted"
+      ? platformReason
+      : evidence.reason;
+    return `
+      <article class="horizon-model-card wait-card">
+        <header><span>${h} دقيقة</span><strong>WAIT — GATE</strong></header>
+        <dl>
+          <div><dt>حالات +10% في الاختبار</dt><dd>${count(evidence.up)}</dd></div>
+          <div><dt>حالات −10% في الاختبار</dt><dd>${count(evidence.down)}</dd></div>
+          <div><dt>سبب عدم إصدار الاحتمال</dt><dd>${reasonLabel(reason || platformReason)}</dd></div>
+        </dl>
+      </article>`;
+  }).join("");
 }
 
 function renderStatus(status) {
@@ -106,7 +163,7 @@ function renderStatus(status) {
   $("dataStart").textContent = time(status.data_start_ms);
   $("platformState").textContent = status.state || "WAIT";
   $("platformState").className = status.state === "WAIT" ? "wait" : "";
-  $("platformReason").textContent = status.reason || "—";
+  $("platformReason").textContent = reasonLabel(status.reason);
 
   const progress = Math.min(1, Math.max(0, Number(status.lifecycle_progress || 0)));
   const stage = status.lifecycle_stage || "IDLE";
@@ -122,27 +179,43 @@ function renderStatus(status) {
   $("currentWatermark").textContent = time(status.current_watermark_ms);
 }
 
-function renderCatalog(catalog) {
+function summarizeTouchEvidence(report) {
+  return HORIZONS.map((h) => {
+    const evidence = directionalSupport(report, h);
+    return `${h}د: +${count(evidence.up)} / −${count(evidence.down)}`;
+  }).join(" | ");
+}
+
+function renderCatalog(catalog, touchReport = {}, production = {}) {
   const shock = catalog.adaptive_shock;
   const touch = catalog.first_touch_10;
+  const envelopeLive = production.future_envelope || {};
+  const reportMeta = touchReport._meta || {};
+
   $("shockState").textContent = shock.available ? "READY — RESEARCH" : "WAIT";
   $("shockVersion").textContent = shock.available ? shock.model_version : "لا يوجد نموذج مدرّب";
-  $("touchState").textContent = touch.available ? "READY — RESEARCH" : "WAIT";
-  $("touchVersion").textContent = touch.available ? touch.model_version : "لا يوجد نموذج مدرّب";
+  $("touchState").textContent = touch.available ? "READY — RESEARCH" : "WAIT — DIRECTIONAL GATE";
+  $("touchVersion").textContent = touch.available
+    ? touch.model_version
+    : reasonLabel(touch.availability_reason);
 
   $("shockMethod").innerHTML = `
     <div class="factor"><span>النوع</span><strong>${shock.technical_name}</strong></div>
     <div class="factor"><span>الغرض</span><strong>${shock.purpose}</strong></div>
     <div class="factor"><span>صفوف التدريب</span><strong>${shock.training_rows ?? "—"}</strong></div>`;
   $("shockGate").innerHTML = `
-    <div class="factor"><span>الاختبار</span><strong>${shock.gate}</strong></div>
+    <div class="factor"><span>الاختبار التاريخي</span><strong>${shock.gate}</strong></div>
+    <div class="factor"><span>المراقبة الحية</span><strong>${envelopeLive.status || "WAIT"} — ${reasonLabel(envelopeLive.reason)}</strong></div>
+    <div class="factor"><span>العينات الحية الناضجة</span><strong>${count(envelopeLive.evaluated_rows)} | صعود ${pct(Number(envelopeLive.max_interval_coverage))} | هبوط ${pct(Number(envelopeLive.min_interval_coverage))}</strong></div>
     <div class="factor"><span>الترقية للتداول</span><strong>غير مفعلة</strong></div>`;
   $("touchMethod").innerHTML = `
     <div class="factor"><span>النوع</span><strong>${touch.technical_name}</strong></div>
     <div class="factor"><span>الغرض</span><strong>${touch.purpose}</strong></div>
-    <div class="factor"><span>صفوف التدريب</span><strong>${touch.training_rows ?? "—"}</strong></div>`;
+    <div class="factor"><span>صفوف التدريب المفحوصة</span><strong>${touch.training_rows ?? "—"}</strong></div>`;
   $("touchGate").innerHTML = `
     <div class="factor"><span>الاختبار</span><strong>${touch.gate}</strong></div>
+    <div class="factor"><span>حالة تقرير البوابة</span><strong>${reportMeta.status || touch.training_report_status || "WAIT"} — ${reasonLabel(reportMeta.reason)}</strong></div>
+    <div class="factor"><span>دعم الاتجاهات في الاختبار</span><strong>${summarizeTouchEvidence(touchReport)}</strong></div>
     <div class="factor"><span>الترقية للتداول</span><strong>غير مفعلة</strong></div>`;
 }
 
@@ -169,9 +242,9 @@ function renderShock(rows) {
     </article>`).join("");
 }
 
-function renderTouch(rows) {
+function renderTouch(rows, report = {}, platformReason = "") {
   if (!rows.length) {
-    waitTouchCards();
+    waitTouchCards(report, platformReason);
     return;
   }
   const sorted = [...rows].sort((a, b) => a.horizon_minutes - b.horizon_minutes);
@@ -197,10 +270,12 @@ function renderTouch(rows) {
   }).join("");
 }
 
-function renderLedger(rows) {
+function renderLedger(rows, touchAvailable) {
   const body = $("ledgerBody");
   if (!rows.length) {
-    body.innerHTML = '<tr><td colspan="8" class="empty">لم تُسجل توقعات حقيقية بعد</td></tr>';
+    body.innerHTML = `<tr><td colspan="8" class="empty">${touchAvailable
+      ? "لم تنضج توقعات Model B المعتمدة بعد"
+      : "لا توجد نسخة Model B اجتازت البوابة؛ أُخفيت سجلات النسخ الملغاة"}</td></tr>`;
     return;
   }
   body.innerHTML = rows.slice(0, 100).map((row) => `
@@ -215,14 +290,18 @@ async function refresh() {
       fetch("/api/models/adaptive-shock/latest", { cache: "no-store" }),
       fetch("/api/models/first-touch/latest", { cache: "no-store" }),
       fetch("/api/ledger?limit=100", { cache: "no-store" }),
+      fetch("/api/reports/training/first-touch", { cache: "no-store" }),
+      fetch("/api/reports/production", { cache: "no-store" }),
     ]);
     if (!responses.every((response) => response.ok)) throw new Error("API unavailable");
-    const [status, catalog, shock, touch, ledger] = await Promise.all(responses.map((r) => r.json()));
+    const [status, catalog, shock, touch, ledger, touchReport, production] = await Promise.all(
+      responses.map((response) => response.json()),
+    );
     renderStatus(status);
-    renderCatalog(catalog);
+    renderCatalog(catalog, touchReport, production);
     renderShock(shock);
-    renderTouch(touch);
-    renderLedger(ledger);
+    renderTouch(touch, touchReport, status.reason);
+    renderLedger(ledger, Boolean(catalog.first_touch_10.available));
   } catch (error) {
     setConnection("error", "الخادم غير مشغّل أو الدورة الأولى فشلت");
     $("lastTick").textContent = "راجع نافذة التشغيل لمعرفة سبب WAIT";
