@@ -144,8 +144,7 @@ def build_partitioned_anchor_dataset(
 
         source_end_ms = month_last_ms + maximum_horizon_ms
         source = frame[
-            (frame["timestamp_ms"] >= month_start_ms)
-            & (frame["timestamp_ms"] <= source_end_ms)
+            (frame["timestamp_ms"] >= month_start_ms) & (frame["timestamp_ms"] <= source_end_ms)
         ]
         built = _initial_dataset(
             _to_candles(source),
@@ -177,9 +176,7 @@ def build_partitioned_anchor_dataset(
         statuses=("FINAL",),
     )
     state.finalized_label_watermark_ms = (
-        None
-        if final_frame.empty
-        else int(final_frame["anchor_timestamp_ms"].max())
+        None if final_frame.empty else int(final_frame["anchor_timestamp_ms"].max())
     )
     state_store.save(state)
     unique_changed = tuple(

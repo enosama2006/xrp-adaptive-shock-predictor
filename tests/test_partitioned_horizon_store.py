@@ -106,9 +106,7 @@ def test_load_filters_horizon_time_and_status(tmp_path: Path) -> None:
         statuses=("FINAL",),
     )
 
-    assert loaded[["anchor_timestamp_ms", "horizon_minutes"]].values.tolist() == [
-        [first, 15]
-    ]
+    assert loaded[["anchor_timestamp_ms", "horizon_minutes"]].values.tolist() == [[first, 15]]
 
 
 def test_legacy_file_migrates_without_deletion(tmp_path: Path) -> None:

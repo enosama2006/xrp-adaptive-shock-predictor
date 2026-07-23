@@ -17,15 +17,13 @@ from typing import Any
 import joblib
 import pandas as pd
 
-from .anchor_dataset import ANCHOR_COLUMNS, AnchorDatasetConfig, AnchorDatasetStore
+from .anchor_dataset import AnchorDatasetConfig, AnchorDatasetStore
 from .baseline import BaselineConfig
-from .dataset_state import DatasetStateStore
-from .fast_anchor_dataset import _initial_dataset, _normalize_candles, _save_and_advance_state
 from .feature_registry import SCHEMA_VERSION as FEATURE_SCHEMA_VERSION
 from .features import join_anchors_with_features
 from .first_touch_v4 import FIRST_TOUCH_GATE_VERSION, train_first_touch_v4
 from .horizons import RESEARCH_HORIZON_SET_VERSION, RESEARCH_HORIZONS_MINUTES
-from .labeling import CandlePoint
+from .partitioned_horizon_store import HorizonStoreStats
 from .pipeline import IncrementalResearchPipeline, PipelineConfig, PipelinePaths
 from .platform_runtime import RealDataPlatform, RuntimeConfig, RuntimePaths
 from .prediction_ledger import PredictionRecord
@@ -62,11 +60,7 @@ def _anchor_horizon_matrix_complete(frame: pd.DataFrame) -> bool:
     anchor_count = int(frame["anchor_timestamp_ms"].nunique())
     if anchor_count <= 0:
         return False
-    counts = (
-        frame.groupby("horizon_minutes")["anchor_timestamp_ms"]
-        .nunique()
-        .to_dict()
-    )
+    counts = frame.groupby("horizon_minutes")["anchor_timestamp_ms"].nunique().to_dict()
     return all(int(counts.get(horizon, 0)) == anchor_count for horizon in HORIZONS)
 
 
@@ -95,9 +89,7 @@ class ExtendedHorizonRealDataPlatform(RealDataPlatform):
                 self._bundle = loaded
                 self.status.model_available = True
                 self.status.model_version = str(loaded.get("model_version"))
-                self.status.last_training_final_rows = int(
-                    loaded.get("training_final_rows", 0)
-                )
+                self.status.last_training_final_rows = int(loaded.get("training_final_rows", 0))
                 return
         self.status.model_available = False
         self.status.model_version = None
@@ -118,64 +110,21 @@ class ExtendedHorizonRealDataPlatform(RealDataPlatform):
             shutil.copy2(self.paths.anchors, backup)
         return backup
 
-    def _ensure_extended_anchor_horizons(self) -> pd.DataFrame:
+    def _ensure_extended_anchor_horizons(self) -> HorizonStoreStats:
         store = AnchorDatasetStore(self.paths.anchors)
-        existing = store.load()
-        if _anchor_horizon_matrix_complete(existing):
-            return existing
-
-        self._set_lifecycle(
-            "MIGRATE_HORIZONS",
-            progress=0.0,
-            message="rebuilding_historical_anchors_for_extended_horizons",
-        )
-        self._backup_anchor_dataset()
-        prices = self._load_prices()
-        candles = [
-            CandlePoint(
-                timestamp_ms=int(row.timestamp_ms),
-                open=float(row.open),
-                high=float(row.high),
-                low=float(row.low),
-                close=float(row.price),
-            )
-            for row in prices.itertuples(index=False)
-        ]
-        points = _normalize_candles(candles)
-        if not points:
-            empty = pd.DataFrame(columns=ANCHOR_COLUMNS)
-            store.save(empty)
-            return empty
-        config = AnchorDatasetConfig(horizons_minutes=HORIZONS)
-        rebuilt = _initial_dataset(
-            points,
-            config,
-            chunk_rows=ANCHOR_REBUILD_CHUNK_ROWS,
-        )
-        result = _save_and_advance_state(
-            rebuilt,
-            store=store,
-            state_store=DatasetStateStore(self.paths.state),
-            latest_timestamp_ms=points[-1].timestamp_ms,
-        )
-        if not _anchor_horizon_matrix_complete(result):
-            raise RuntimeError("extended anchor horizon matrix rebuild is incomplete")
-        self.status.anchor_rows = int(len(result))
-        self.status.final_rows = int((result["status"] == "FINAL").sum())
-        self.status.pending_rows = int((result["status"] == "PENDING").sum())
-        self._set_lifecycle(
-            "MIGRATE_HORIZONS",
-            progress=1.0,
-            message="extended_historical_horizons_ready",
-        )
-        return result
+        stats = store.stats()
+        available = {horizon for horizon, rows in stats.horizon_rows.items() if rows > 0}
+        if stats.total_rows and available != set(HORIZONS):
+            missing = sorted(set(HORIZONS) - available)
+            raise RuntimeError(f"extended anchor partitions missing horizons: {missing}")
+        return stats
 
     def sync_real_data(self, end_ms: int | None = None) -> None:
         super().sync_real_data(end_ms)
         anchors = self._ensure_extended_anchor_horizons()
-        self.status.anchor_rows = int(len(anchors))
-        self.status.final_rows = int((anchors["status"] == "FINAL").sum())
-        self.status.pending_rows = int((anchors["status"] == "PENDING").sum())
+        self.status.anchor_rows = anchors.total_rows
+        self.status.final_rows = anchors.final_rows
+        self.status.pending_rows = anchors.pending_rows
         self._save_status()
 
     @staticmethod
@@ -201,8 +150,7 @@ class ExtendedHorizonRealDataPlatform(RealDataPlatform):
         final_count = int((anchors["status"] == "FINAL").sum())
         due = force or (
             final_count
-            >= self.status.last_training_final_rows
-            + self.config.retrain_after_new_final_rows
+            >= self.status.last_training_final_rows + self.config.retrain_after_new_final_rows
         )
         if not due:
             return False
@@ -218,8 +166,7 @@ class ExtendedHorizonRealDataPlatform(RealDataPlatform):
         incumbent_models: dict[int, Any] = {}
         if self._bundle is not None:
             incumbent_models = {
-                int(horizon): model
-                for horizon, model in self._bundle.get("models", {}).items()
+                int(horizon): model for horizon, model in self._bundle.get("models", {}).items()
             }
         models = dict(incumbent_models)
         reports: dict[str, Any] = {}
@@ -323,8 +270,7 @@ class ExtendedHorizonRealDataPlatform(RealDataPlatform):
             return []
         if (
             self.status.last_prediction_ms is not None
-            and timestamp - self.status.last_prediction_ms
-            < self.config.prediction_cadence_ms
+            and timestamp - self.status.last_prediction_ms < self.config.prediction_cadence_ms
         ):
             return []
 
@@ -343,10 +289,7 @@ class ExtendedHorizonRealDataPlatform(RealDataPlatform):
         row = pd.DataFrame([{name: latest.get(name) for name in feature_names}])
         records: list[PredictionRecord] = []
         output: list[dict[str, Any]] = []
-        models = {
-            int(horizon): model
-            for horizon, model in self._bundle.get("models", {}).items()
-        }
+        models = {int(horizon): model for horizon, model in self._bundle.get("models", {}).items()}
         for horizon in sorted(models):
             model = models[horizon]
             probabilities = model.predict_proba(row)[0]

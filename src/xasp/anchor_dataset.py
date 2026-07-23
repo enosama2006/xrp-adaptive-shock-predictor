@@ -9,6 +9,7 @@ from pathlib import Path
 import pandas as pd
 
 from .dataset_state import DatasetStateStore
+from .horizons import RESEARCH_HORIZONS_MINUTES
 from .labeling import (
     BarrierConfig,
     BarrierLabel,
@@ -16,6 +17,11 @@ from .labeling import (
     PricePoint,
     label_first_touch,
     label_first_touch_candles,
+)
+from .partitioned_horizon_store import (
+    HorizonPartitionKey,
+    HorizonStoreStats,
+    PartitionedHorizonStore,
 )
 
 ANCHOR_COLUMNS = [
@@ -39,7 +45,7 @@ ANCHOR_COLUMNS = [
 
 @dataclass(frozen=True, slots=True)
 class AnchorDatasetConfig:
-    horizons_minutes: tuple[int, ...] = (15, 30, 45, 60)
+    horizons_minutes: tuple[int, ...] = RESEARCH_HORIZONS_MINUTES
     upper_return: float = 0.10
     lower_return: float = -0.10
     cadence_ms: int = 60_000
@@ -54,30 +60,71 @@ class AnchorDatasetConfig:
 
 
 class AnchorDatasetStore:
-    """Append/replace a compact Parquet anchor table atomically."""
+    """Monthly/horizon anchor partitions with legacy single-file migration."""
 
     def __init__(self, path: Path) -> None:
         self.path = path
-
-    def load(self) -> pd.DataFrame:
-        if not self.path.exists():
-            return pd.DataFrame(columns=ANCHOR_COLUMNS)
-        frame = pd.read_parquet(self.path)
-        missing = set(ANCHOR_COLUMNS) - set(frame.columns)
-        if missing:
-            raise ValueError(f"anchor dataset missing columns: {sorted(missing)}")
-        return frame[ANCHOR_COLUMNS].sort_values(
-            ["anchor_timestamp_ms", "horizon_minutes"], ignore_index=True
+        self._store = PartitionedHorizonStore(
+            root=path.with_suffix(""),
+            legacy_path=path,
+            columns=tuple(ANCHOR_COLUMNS),
+            key_columns=("anchor_timestamp_ms", "horizon_minutes"),
+            timestamp_column="anchor_timestamp_ms",
+            horizon_column="horizon_minutes",
+            dataset_name="first_touch_anchors",
+            status_column="status",
         )
+
+    @property
+    def root(self) -> Path:
+        return self._store.root
+
+    @property
+    def exists(self) -> bool:
+        return self._store.exists
+
+    @property
+    def needs_legacy_migration(self) -> bool:
+        return self._store.needs_legacy_migration
+
+    def ensure_ready(self) -> None:
+        self._store.ensure_ready()
+
+    def stats(self) -> HorizonStoreStats:
+        return self._store.stats()
+
+    def partition_keys(self) -> tuple[HorizonPartitionKey, ...]:
+        return self._store.partition_keys()
+
+    def has_partition(self, key: HorizonPartitionKey) -> bool:
+        return self._store.has_partition(key)
+
+    def partition_rows(self, key: HorizonPartitionKey) -> int:
+        return int(len(self._store.load_partition(key)))
+
+    def load_partition(self, key: HorizonPartitionKey) -> pd.DataFrame:
+        return self._store.load_partition(key)
+
+    def load(
+        self,
+        *,
+        horizons: tuple[int, ...] | None = None,
+        start_ms: int | None = None,
+        end_ms: int | None = None,
+        statuses: tuple[str, ...] | None = None,
+    ) -> pd.DataFrame:
+        return self._store.load(
+            horizons=horizons,
+            start_ms=start_ms,
+            end_ms=end_ms,
+            statuses=statuses,
+        )
+
+    def upsert(self, frame: pd.DataFrame) -> HorizonStoreStats:
+        return self._store.upsert(frame)
 
     def save(self, frame: pd.DataFrame) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        normalized = frame[ANCHOR_COLUMNS].sort_values(
-            ["anchor_timestamp_ms", "horizon_minutes"], ignore_index=True
-        )
-        temporary = self.path.with_suffix(self.path.suffix + ".tmp")
-        normalized.to_parquet(temporary, index=False)
-        temporary.replace(self.path)
+        self._store.replace(frame)
 
 
 def _normalize_prices(prices: Iterable[PricePoint]) -> list[PricePoint]:
@@ -231,11 +278,7 @@ def _build_candle_row(
 ) -> dict[str, object]:
     horizon_ms = horizon_minutes * 60_000
     horizon_end = anchor.timestamp_ms + horizon_ms
-    path = [
-        candle
-        for candle in future
-        if anchor.timestamp_ms < candle.timestamp_ms <= horizon_end
-    ]
+    path = [candle for candle in future if anchor.timestamp_ms < candle.timestamp_ms <= horizon_end]
     max_price = max((candle.high for candle in path), default=None)
     min_price = min((candle.low for candle in path), default=None)
 
@@ -294,9 +337,7 @@ def _save_and_advance_state(
     state_store: DatasetStateStore,
     latest_timestamp_ms: int,
 ) -> pd.DataFrame:
-    combined = combined.drop_duplicates(
-        ["anchor_timestamp_ms", "horizon_minutes"], keep="last"
-    )
+    combined = combined.drop_duplicates(["anchor_timestamp_ms", "horizon_minutes"], keep="last")
     store.save(combined)
     state = state_store.load()
     state.feature_watermark_ms = latest_timestamp_ms

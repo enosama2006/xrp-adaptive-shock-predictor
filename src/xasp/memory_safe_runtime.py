@@ -25,16 +25,15 @@ class MemorySafeExtendedHorizonPlatform(ExtendedHorizonRealDataPlatform):
     def train_if_due(self, force: bool = False) -> bool:
         if not self.config.training_enabled:
             return False
-        anchors = AnchorDatasetStore(self.paths.anchors).load()
+        anchor_store = AnchorDatasetStore(self.paths.anchors)
+        anchor_stats = anchor_store.stats()
         features = pd.read_parquet(self.paths.features)
-        final_count = int((anchors["status"] == "FINAL").sum())
+        final_count = anchor_stats.final_rows
         retrain_rows = max(
             self.config.retrain_after_new_final_rows,
             DAILY_FINALIZED_HORIZON_ROWS,
         )
-        due = force or (
-            final_count >= self.status.last_training_final_rows + retrain_rows
-        )
+        due = force or (final_count >= self.status.last_training_final_rows + retrain_rows)
         if not due:
             return False
 
@@ -48,8 +47,7 @@ class MemorySafeExtendedHorizonPlatform(ExtendedHorizonRealDataPlatform):
         incumbent_models: dict[int, Any] = {}
         if self._bundle is not None:
             incumbent_models = {
-                int(horizon): model
-                for horizon, model in self._bundle.get("models", {}).items()
+                int(horizon): model for horizon, model in self._bundle.get("models", {}).items()
             }
         models = dict(incumbent_models)
         reports: dict[str, Any] = {}
@@ -57,7 +55,10 @@ class MemorySafeExtendedHorizonPlatform(ExtendedHorizonRealDataPlatform):
         rejected_horizons: list[int] = []
 
         for index, horizon in enumerate(HORIZONS, start=1):
-            anchor_subset = anchors[anchors["horizon_minutes"] == horizon].copy()
+            anchor_subset = anchor_store.load(
+                horizons=(horizon,),
+                statuses=("FINAL",),
+            )
             subset = join_anchors_with_features(anchor_subset, features)
             horizon_ms = horizon * 60_000
             model, report = train_first_touch_v4(

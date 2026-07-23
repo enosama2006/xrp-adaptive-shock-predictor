@@ -7,11 +7,11 @@ rewrites only partitions touched by an upsert. No missing rows are fabricated.
 
 from __future__ import annotations
 
+import json
+import shutil
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
-import json
 from pathlib import Path
-import shutil
 from typing import Any, cast
 
 import pandas as pd
@@ -97,11 +97,7 @@ class PartitionedHorizonStore:
         return datetime.fromtimestamp(timestamp_ms / 1000, tz=UTC).strftime("%Y-%m")
 
     def _partition_path(self, key: HorizonPartitionKey) -> Path:
-        return (
-            self.root
-            / f"horizon={key.horizon_minutes:04d}"
-            / f"{key.month}.parquet"
-        )
+        return self.root / f"horizon={key.horizon_minutes:04d}" / f"{key.month}.parquet"
 
     def _partition_paths(self) -> list[Path]:
         if not self.root.exists():
@@ -111,8 +107,7 @@ class PartitionedHorizonStore:
     @property
     def exists(self) -> bool:
         return bool(
-            self._partition_paths()
-            or (self.legacy_path is not None and self.legacy_path.exists())
+            self._partition_paths() or (self.legacy_path is not None and self.legacy_path.exists())
         )
 
     @property
@@ -128,16 +123,10 @@ class PartitionedHorizonStore:
             return pd.DataFrame(columns=list(self.columns))
         missing = set(self.columns) - set(frame.columns)
         if missing:
-            raise ValueError(
-                f"{self.dataset_name} dataset missing columns: {sorted(missing)}"
-            )
+            raise ValueError(f"{self.dataset_name} dataset missing columns: {sorted(missing)}")
         normalized = frame.loc[:, list(self.columns)].copy()
-        normalized[self.timestamp_column] = normalized[self.timestamp_column].astype(
-            "int64"
-        )
-        normalized[self.horizon_column] = normalized[self.horizon_column].astype(
-            "int64"
-        )
+        normalized[self.timestamp_column] = normalized[self.timestamp_column].astype("int64")
+        normalized[self.horizon_column] = normalized[self.horizon_column].astype("int64")
         normalized = normalized.drop_duplicates(list(self.key_columns), keep="last")
         normalized = normalized.sort_values(
             [self.timestamp_column, self.horizon_column],
@@ -237,14 +226,10 @@ class PartitionedHorizonStore:
             "total_rows": sum(info.rows for info in partitions),
             "partition_count": len(partitions),
             "min_timestamp_ms": (
-                None
-                if not partitions
-                else min(info.min_timestamp_ms for info in partitions)
+                None if not partitions else min(info.min_timestamp_ms for info in partitions)
             ),
             "max_timestamp_ms": (
-                None
-                if not partitions
-                else max(info.max_timestamp_ms for info in partitions)
+                None if not partitions else max(info.max_timestamp_ms for info in partitions)
             ),
             "horizon_rows": {str(key): value for key, value in sorted(horizon_rows.items())},
             "status_counts": status_counts,
@@ -270,9 +255,7 @@ class PartitionedHorizonStore:
         return self.stats()
 
     def _keys_for_frame(self, frame: pd.DataFrame) -> pd.Series:
-        months = frame[self.timestamp_column].map(
-            lambda value: self._month_key(int(value))
-        )
+        months = frame[self.timestamp_column].map(lambda value: self._month_key(int(value)))
         horizons = frame[self.horizon_column].astype("int64")
         return horizons.astype(str) + ":" + months
 
@@ -301,14 +284,10 @@ class PartitionedHorizonStore:
                 merged = self.normalize(pd.concat([existing, group], ignore_index=True))
             else:
                 merged = self.normalize(group)
-            if any(
-                int(value) != key.horizon_minutes
-                for value in merged[self.horizon_column]
-            ):
+            if any(int(value) != key.horizon_minutes for value in merged[self.horizon_column]):
                 raise ValueError(f"mixed horizons in upsert partition: {key.identifier}")
             if any(
-                self._month_key(int(value)) != key.month
-                for value in merged[self.timestamp_column]
+                self._month_key(int(value)) != key.month for value in merged[self.timestamp_column]
             ):
                 raise ValueError(f"mixed months in upsert partition: {key.identifier}")
             self._atomic_write_parquet(merged, path)
@@ -448,9 +427,7 @@ class PartitionedHorizonStore:
             return HorizonStoreStats(0, 0, None, None, {}, {}, False)
         raw_horizon_rows = manifest.get("horizon_rows", {})
         raw_status_counts = manifest.get("status_counts", {})
-        if not isinstance(raw_horizon_rows, dict) or not isinstance(
-            raw_status_counts, dict
-        ):
+        if not isinstance(raw_horizon_rows, dict) or not isinstance(raw_status_counts, dict):
             raise ValueError(f"invalid {self.dataset_name} manifest totals")
         return HorizonStoreStats(
             total_rows=int(manifest.get("total_rows", 0)),
@@ -465,12 +442,8 @@ class PartitionedHorizonStore:
                 if manifest.get("max_timestamp_ms") is None
                 else int(manifest["max_timestamp_ms"])
             ),
-            horizon_rows={
-                int(key): int(value) for key, value in raw_horizon_rows.items()
-            },
-            status_counts={
-                str(key): int(value) for key, value in raw_status_counts.items()
-            },
+            horizon_rows={int(key): int(value) for key, value in raw_horizon_rows.items()},
+            status_counts={str(key): int(value) for key, value in raw_status_counts.items()},
             migrated_from_legacy=bool(manifest.get("migrated_from_legacy", False)),
         )
 
