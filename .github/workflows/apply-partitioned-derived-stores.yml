@@ -1,0 +1,70 @@
+name: Apply Partitioned Derived Stores
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout pull request branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+
+      - name: Apply reviewed integration patch
+        run: |
+          git apply --check docs/partitioned-derived-stores.patch
+          git apply docs/partitioned-derived-stores.patch
+          rm docs/partitioned-derived-stores.patch
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install project
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Compile
+        run: python -m compileall -q src tests scripts
+
+      - name: Lint
+        run: ruff check src tests
+
+      - name: Type check
+        run: mypy --python-version 3.11 src
+
+      - name: Tests
+        run: pytest --cov=xasp --cov-report=term-missing
+
+      - name: Browser JavaScript syntax
+        run: |
+          node --check app.js
+          node --check governance.js
+
+      - name: Persist verified changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/xasp/anchor_dataset.py
+          git add src/xasp/pipeline.py
+          git add src/xasp/platform_runtime.py
+          git add src/xasp/extended_runtime.py
+          git add src/xasp/memory_safe_runtime.py
+          git add src/xasp/envelope_engine_v2.py
+          git add src/xasp/platform_runtime_v2.py
+          git add src/xasp/platform_api.py
+          git add pyproject.toml
+          git add -u docs/partitioned-derived-stores.patch
+          git commit -m "storage: integrate partitioned anchor and Model A target stores"
+          git push origin HEAD:${{ github.head_ref }}
