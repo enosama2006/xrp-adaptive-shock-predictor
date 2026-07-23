@@ -71,7 +71,6 @@ class EnvelopeEngineV2:
     ) -> bool:
         if targets.empty:
             return False
-        matrix = join_anchors_with_features(targets, features)
         incumbent_models: dict[int, dict[str, Any]] = {}
         if self.bundle is not None:
             incumbent_models = {
@@ -84,6 +83,8 @@ class EnvelopeEngineV2:
         rejected: list[int] = []
 
         for horizon in HORIZONS:
+            target_subset = targets[targets["horizon_minutes"] == horizon].copy()
+            matrix = join_anchors_with_features(target_subset, features)
             fitted, report = train_future_envelope(
                 matrix,
                 feature_names,
@@ -99,6 +100,7 @@ class EnvelopeEngineV2:
             else:
                 models[horizon] = fitted
                 promoted.append(horizon)
+            del target_subset, matrix
 
         self.paths.report.parent.mkdir(parents=True, exist_ok=True)
         temporary_report = self.paths.report.with_suffix(".json.tmp")
@@ -111,7 +113,7 @@ class EnvelopeEngineV2:
             self.bundle = None
             return False
 
-        bundle = {
+        bundle: dict[str, Any] = {
             "model_version": f"real-envelope-independent-horizons-{int(time.time())}",
             "trained_at_ms": int(time.time() * 1000),
             "feature_names": feature_names,
