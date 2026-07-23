@@ -2,31 +2,33 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
 import pandas as pd
 
-from .anchor_dataset import (
-    AnchorDatasetConfig,
-    AnchorDatasetStore,
-    update_anchor_dataset_from_candles,
-)
+from .anchor_dataset import AnchorDatasetConfig, AnchorDatasetStore
 from .data.binance import BinanceDataClient
 from .dataset_state import DatasetStateStore
+from .fast_anchor_dataset import update_anchor_dataset_from_candles_fast
 from .labeling import CandlePoint
+from .price_store import (
+    CORE_PRICE_COLUMNS,
+    OPTIONAL_PRICE_COLUMNS,
+    PRICE_COLUMNS,
+    PartitionedPriceStore,
+    PriceStoreStats,
+    normalize_price_frame,
+)
 
 MINUTE_MS = 60_000
-CORE_PRICE_COLUMNS = ["timestamp_ms", "price", "open", "high", "low", "volume"]
-OPTIONAL_PRICE_COLUMNS = [
-    "quote_volume",
-    "trade_count",
-    "taker_buy_base",
-    "taker_buy_quote",
-]
-PRICE_COLUMNS = [*CORE_PRICE_COLUMNS, *OPTIONAL_PRICE_COLUMNS]
+
+
+class KlineRecord(Protocol):
+    event_time_ms: int
+    payload: dict[str, object]
 
 
 class SpotKlineClient(Protocol):
@@ -38,7 +40,7 @@ class SpotKlineClient(Protocol):
         start_time_ms: int,
         end_time_ms: int,
         limit: int = 1000,
-    ): ...
+    ) -> Iterator[KlineRecord]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,6 +65,10 @@ class PipelinePaths:
     prices: Path
     anchors: Path
     state: Path
+
+    @property
+    def price_partitions(self) -> Path:
+        return self.prices.with_suffix("")
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,13 +97,7 @@ class PipelineRunResult:
     pending_labels: int
     finalized_labels: int
     checkpoint_writes: int = 0
-
-
-def _atomic_write_parquet(frame: pd.DataFrame, path: Path) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    frame.to_parquet(temporary, index=False)
-    temporary.replace(path)
+    price_partition_count: int = 0
 
 
 def _normalize_completed_minute_timestamp(timestamp_ms: int) -> int:
@@ -107,24 +107,9 @@ def _normalize_completed_minute_timestamp(timestamp_ms: int) -> int:
 
 
 def _load_prices(path: Path) -> pd.DataFrame:
-    if not path.exists():
-        return pd.DataFrame(columns=PRICE_COLUMNS)
-    frame = pd.read_parquet(path)
-    missing_core = set(CORE_PRICE_COLUMNS) - set(frame.columns)
-    if missing_core:
-        raise ValueError(f"price dataset missing core columns: {sorted(missing_core)}")
-    for column in OPTIONAL_PRICE_COLUMNS:
-        if column not in frame.columns:
-            frame[column] = pd.NA
-    frame = frame[PRICE_COLUMNS].copy()
-    frame["timestamp_ms"] = frame["timestamp_ms"].map(
-        lambda value: _normalize_completed_minute_timestamp(int(value))
-    )
-    return (
-        frame.drop_duplicates("timestamp_ms", keep="last")
-        .sort_values("timestamp_ms", ignore_index=True)
-        .reindex(columns=PRICE_COLUMNS)
-    )
+    """Compatibility loader backed by the partition store and legacy migration."""
+
+    return PartitionedPriceStore(path.with_suffix(""), legacy_path=path).load()
 
 
 def _optional_float(payload: dict[str, object], name: str) -> float | None:
@@ -141,10 +126,10 @@ def _optional_int(payload: dict[str, object], name: str) -> int | None:
     return int(value)
 
 
-def _records_to_prices(records: list[object]) -> pd.DataFrame:
+def _records_to_prices(records: Iterable[KlineRecord]) -> pd.DataFrame:
     rows: list[dict[str, object]] = []
     for record in records:
-        payload: dict[str, object] = record.payload
+        payload = record.payload
         raw_close_time = int(payload.get("close_time_ms", record.event_time_ms))
         timestamp_ms = _normalize_completed_minute_timestamp(raw_close_time)
         rows.append(
@@ -163,28 +148,17 @@ def _records_to_prices(records: list[object]) -> pd.DataFrame:
         )
     if not rows:
         return pd.DataFrame(columns=PRICE_COLUMNS)
-    return pd.DataFrame(rows, columns=PRICE_COLUMNS)
+    return normalize_price_frame(pd.DataFrame(rows, columns=PRICE_COLUMNS))
 
 
 def _merge_prices(existing: pd.DataFrame, incoming: pd.DataFrame) -> pd.DataFrame:
-    # Avoid pandas' deprecated dtype inference when the first real batch is
-    # merged with the empty bootstrap frame.
+    """Compatibility merge used by tests and migration utilities."""
+
     if existing.empty:
-        combined = incoming.copy()
-    elif incoming.empty:
-        combined = existing.copy()
-    else:
-        combined = pd.concat([existing, incoming], ignore_index=True)
-    if combined.empty:
-        return combined.reindex(columns=PRICE_COLUMNS)
-    combined["timestamp_ms"] = combined["timestamp_ms"].map(
-        lambda value: _normalize_completed_minute_timestamp(int(value))
-    )
-    combined = combined.drop_duplicates("timestamp_ms", keep="last")
-    combined = combined.sort_values("timestamp_ms", ignore_index=True)
-    if not combined["timestamp_ms"].is_monotonic_increasing:
-        raise ValueError("price timestamps must be monotonic")
-    return combined.reindex(columns=PRICE_COLUMNS)
+        return normalize_price_frame(incoming)
+    if incoming.empty:
+        return normalize_price_frame(existing)
+    return normalize_price_frame(pd.concat([existing, incoming], ignore_index=True))
 
 
 def _to_candles(frame: pd.DataFrame) -> list[CandlePoint]:
@@ -213,7 +187,7 @@ def _progress_fraction(processed_rows: int, expected_rows: int) -> float:
 
 
 class IncrementalResearchPipeline:
-    """Checkpoint the missing tail, then build pending/final OHLC labels."""
+    """Checkpoint the missing tail into monthly partitions, then build OHLC labels."""
 
     def __init__(
         self,
@@ -224,16 +198,22 @@ class IncrementalResearchPipeline:
         self.paths = paths
         self.config = config
         self.client = client
+        self.price_store = PartitionedPriceStore(
+            paths.price_partitions,
+            legacy_path=paths.prices,
+        )
 
-    def _requested_start(self, prices: pd.DataFrame) -> int:
-        if prices.empty:
+    def _requested_start(self, stats: PriceStoreStats) -> int:
+        if stats.max_timestamp_ms is None:
             return self.config.bootstrap_start_ms
-        latest = int(prices["timestamp_ms"].max())
         overlap = self.config.overlap_minutes * MINUTE_MS
-        return max(self.config.bootstrap_start_ms, latest - overlap + 1)
+        return max(
+            self.config.bootstrap_start_ms,
+            int(stats.max_timestamp_ms) - overlap + 1,
+        )
 
+    @staticmethod
     def _notify(
-        self,
         callback: ProgressCallback | None,
         *,
         stage: str,
@@ -241,12 +221,11 @@ class IncrementalResearchPipeline:
         end_ms: int,
         expected_rows: int,
         processed_rows: int,
-        prices: pd.DataFrame,
+        stats: PriceStoreStats,
         checkpoint_writes: int,
     ) -> None:
         if callback is None:
             return
-        watermark = None if prices.empty else int(prices["timestamp_ms"].max())
         callback(
             PipelineProgress(
                 stage=stage,
@@ -254,21 +233,20 @@ class IncrementalResearchPipeline:
                 requested_end_ms=end_ms,
                 expected_rows=expected_rows,
                 processed_rows=processed_rows,
-                total_price_rows=len(prices),
+                total_price_rows=stats.total_rows,
                 checkpoint_writes=checkpoint_writes,
-                current_watermark_ms=watermark,
+                current_watermark_ms=stats.max_timestamp_ms,
                 progress_fraction=_progress_fraction(processed_rows, expected_rows),
             )
         )
 
     def _persist_checkpoint(
         self,
-        existing: pd.DataFrame,
-        buffered_records: list[object],
+        buffered_records: list[KlineRecord],
         *,
         end_time_ms: int,
         state_store: DatasetStateStore,
-    ) -> tuple[pd.DataFrame, int]:
+    ) -> tuple[int, PriceStoreStats]:
         incoming = _records_to_prices(buffered_records)
         if not incoming.empty:
             # Binance may return the currently forming candle. Its normalized
@@ -276,17 +254,52 @@ class IncrementalResearchPipeline:
             # enter point-in-time features, labels, or predictions.
             incoming = incoming[incoming["timestamp_ms"] <= end_time_ms].copy()
         if incoming.empty:
-            return existing, 0
+            return 0, self.price_store.stats()
 
-        merged = _merge_prices(existing, incoming)
-        _atomic_write_parquet(merged, self.paths.prices)
+        stats = self.price_store.append(incoming)
+        if stats.max_timestamp_ms is None:
+            raise ValueError("price store did not expose a watermark after append")
         state = state_store.load()
         state.advance_raw_watermark(
             f"binance_spot:{self.config.symbol}:kline_1m",
-            int(merged["timestamp_ms"].max()),
+            stats.max_timestamp_ms,
         )
         state_store.save(state)
-        return merged, len(incoming)
+        return int(len(incoming)), stats
+
+    def _migrate_legacy_if_needed(
+        self,
+        *,
+        end_time_ms: int,
+        callback: ProgressCallback | None,
+    ) -> PriceStoreStats:
+        before = self.price_store.stats()
+        if not self.price_store.needs_legacy_migration:
+            self.price_store.ensure_ready()
+            return self.price_store.stats()
+        expected = before.total_rows
+        self._notify(
+            callback,
+            stage="MIGRATE_PRICE_STORAGE",
+            start_ms=before.min_timestamp_ms or self.config.bootstrap_start_ms,
+            end_ms=end_time_ms,
+            expected_rows=expected,
+            processed_rows=0,
+            stats=before,
+            checkpoint_writes=0,
+        )
+        after = self.price_store.migrate_legacy()
+        self._notify(
+            callback,
+            stage="MIGRATE_PRICE_STORAGE",
+            start_ms=after.min_timestamp_ms or self.config.bootstrap_start_ms,
+            end_ms=end_time_ms,
+            expected_rows=expected,
+            processed_rows=expected,
+            stats=after,
+            checkpoint_writes=after.partition_count,
+        )
+        return after
 
     def run(
         self,
@@ -296,8 +309,11 @@ class IncrementalResearchPipeline:
         if end_time_ms < self.config.bootstrap_start_ms:
             raise ValueError("end_time_ms precedes bootstrap_start_ms")
 
-        existing = _load_prices(self.paths.prices)
-        start_time_ms = self._requested_start(existing)
+        stats = self._migrate_legacy_if_needed(
+            end_time_ms=end_time_ms,
+            callback=progress_callback,
+        )
+        start_time_ms = self._requested_start(stats)
         expected_rows = _expected_minute_rows(start_time_ms, end_time_ms)
         processed_rows = 0
         checkpoint_writes = 0
@@ -310,13 +326,13 @@ class IncrementalResearchPipeline:
             end_ms=end_time_ms,
             expected_rows=expected_rows,
             processed_rows=processed_rows,
-            prices=existing,
+            stats=stats,
             checkpoint_writes=checkpoint_writes,
         )
 
         owns_client = self.client is None
         client: SpotKlineClient = self.client or BinanceDataClient()
-        buffer: list[object] = []
+        buffer: list[KlineRecord] = []
         try:
             for record in client.iter_spot_klines(
                 symbol=self.config.symbol,
@@ -327,8 +343,7 @@ class IncrementalResearchPipeline:
                 buffer.append(record)
                 if len(buffer) < self.config.checkpoint_rows:
                     continue
-                existing, accepted = self._persist_checkpoint(
-                    existing,
+                accepted, stats = self._persist_checkpoint(
                     buffer,
                     end_time_ms=end_time_ms,
                     state_store=state_store,
@@ -344,13 +359,12 @@ class IncrementalResearchPipeline:
                     end_ms=end_time_ms,
                     expected_rows=expected_rows,
                     processed_rows=processed_rows,
-                    prices=existing,
+                    stats=stats,
                     checkpoint_writes=checkpoint_writes,
                 )
 
             if buffer:
-                existing, accepted = self._persist_checkpoint(
-                    existing,
+                accepted, stats = self._persist_checkpoint(
                     buffer,
                     end_time_ms=end_time_ms,
                     state_store=state_store,
@@ -365,13 +379,14 @@ class IncrementalResearchPipeline:
                     end_ms=end_time_ms,
                     expected_rows=expected_rows,
                     processed_rows=processed_rows,
-                    prices=existing,
+                    stats=stats,
                     checkpoint_writes=checkpoint_writes,
                 )
         finally:
             if owns_client and isinstance(client, BinanceDataClient):
                 client.close()
 
+        stats = self.price_store.stats()
         self._notify(
             progress_callback,
             stage="BUILD_ANCHORS",
@@ -379,11 +394,12 @@ class IncrementalResearchPipeline:
             end_ms=end_time_ms,
             expected_rows=expected_rows,
             processed_rows=max(processed_rows, expected_rows),
-            prices=existing,
+            stats=stats,
             checkpoint_writes=checkpoint_writes,
         )
-        anchors = update_anchor_dataset_from_candles(
-            _to_candles(existing),
+        prices = self.price_store.load()
+        anchors = update_anchor_dataset_from_candles_fast(
+            _to_candles(prices),
             AnchorDatasetStore(self.paths.anchors),
             state_store,
             self.config.anchor_config,
@@ -397,16 +413,29 @@ class IncrementalResearchPipeline:
             end_ms=end_time_ms,
             expected_rows=expected_rows,
             processed_rows=max(processed_rows, expected_rows),
-            prices=existing,
+            stats=stats,
             checkpoint_writes=checkpoint_writes,
         )
         return PipelineRunResult(
             requested_start_ms=start_time_ms,
             requested_end_ms=end_time_ms,
             fetched_rows=processed_rows,
-            total_price_rows=len(existing),
+            total_price_rows=stats.total_rows,
             anchor_rows=len(anchors),
             pending_labels=state.pending_label_count,
             finalized_labels=state.finalized_label_count,
             checkpoint_writes=checkpoint_writes,
+            price_partition_count=stats.partition_count,
         )
+
+
+__all__ = [
+    "CORE_PRICE_COLUMNS",
+    "OPTIONAL_PRICE_COLUMNS",
+    "PRICE_COLUMNS",
+    "IncrementalResearchPipeline",
+    "PipelineConfig",
+    "PipelinePaths",
+    "PipelineProgress",
+    "PipelineRunResult",
+]
