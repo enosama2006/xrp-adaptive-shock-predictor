@@ -38,11 +38,7 @@ def test_platform_wires_routes_without_network_or_market_fabrication(tmp_path: P
     paths = _paths(tmp_path)
     platform = RealDataPlatformV2(paths, RuntimeConfig(bootstrap_start_ms=1))
     app = create_app(platform, web_root=Path("."))
-    route_paths = {
-        path
-        for route in app.routes
-        if (path := getattr(route, "path", None)) is not None
-    }
+    route_paths = set(app.openapi()["paths"])
 
     assert platform.status.state == "WAIT"
     assert platform.status.reason == "both_model_independent_horizon_gates_pending"
