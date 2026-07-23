@@ -36,8 +36,28 @@ jobs:
       - name: Compile all Python modules
         run: python -m compileall -q src tests scripts
 
-      - name: Lint
-        run: ruff check src tests
+      - name: Capture Ruff report
+        shell: bash
+        run: |
+          set +e
+          ruff check src tests > "ruff-${{ matrix.python-version }}.txt" 2>&1
+          status=$?
+          cat "ruff-${{ matrix.python-version }}.txt"
+          echo "$status" > "ruff-${{ matrix.python-version }}.status"
+          exit 0
+
+      - name: Upload Ruff report
+        uses: actions/upload-artifact@v4
+        with:
+          name: ruff-${{ matrix.python-version }}
+          path: |
+            ruff-${{ matrix.python-version }}.txt
+            ruff-${{ matrix.python-version }}.status
+          if-no-files-found: error
+
+      - name: Enforce clean lint
+        shell: bash
+        run: test "$(cat 'ruff-${{ matrix.python-version }}.status')" = "0"
 
       - name: Capture type-check report
         shell: bash
