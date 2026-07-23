@@ -1,4 +1,4 @@
-name: XASP Mypy Diagnostic
+name: XASP Diagnostic Bundle
 
 on:
   pull_request:
@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 jobs:
-  mypy:
+  diagnostics:
     runs-on: ubuntu-latest
     timeout-minutes: 12
     steps:
@@ -33,11 +33,16 @@ jobs:
           echo "$status" > mypy-status.txt
           exit 0
 
-      - name: Upload mypy report
+      - name: Package checked-out source
+        shell: bash
+        run: tar --exclude=.git -czf xasp-source.tgz .
+
+      - name: Upload diagnostic bundle
         uses: actions/upload-artifact@v4
         with:
-          name: mypy-report
+          name: xasp-diagnostic-bundle
           path: |
             mypy-report.txt
             mypy-status.txt
+            xasp-source.tgz
           if-no-files-found: error
