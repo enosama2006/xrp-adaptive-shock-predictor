@@ -3,7 +3,8 @@ const HORIZONS = [15, 30, 45, 60];
 
 const STAGE_LABELS = {
   IDLE: "بانتظار التشغيل",
-  BOOTSTRAP_HISTORY: "جمع السنة التاريخية",
+  MIGRATE_PRICE_STORAGE: "ترحيل البيانات إلى تخزين شهري",
+  BOOTSTRAP_HISTORY: "جمع التاريخ السوقي",
   SYNC_MISSING_TAIL: "استكمال البيانات المفقودة",
   BUILD_ANCHORS: "بناء نقاط التوقع",
   DATA_CHECKPOINTED: "حُفظت البيانات",
@@ -31,6 +32,7 @@ const STAGE_LABELS = {
 
 const MESSAGE_LABELS = {
   not_started: "بانتظار بدء دورة التشغيل.",
+  migrate_price_storage: "نسخ ملف الأسعار القديم إلى أقسام شهرية دون حذف الأصل.",
   collecting_completed_market_candles: "جمع شموع السوق المكتملة وحفظها على دفعات.",
   collect_history: "تجميع البيانات التاريخية مع نقاط حفظ قابلة للاستئناف.",
   build_anchors: "بناء نقاط التوقع والنتائج المؤجلة من الشموع الحقيقية.",
@@ -40,10 +42,10 @@ const MESSAGE_LABELS = {
   building_observed_future_excursion_targets: "استخراج أعلى وأدنى حركة مستقبلية مرصودة لنموذج A.",
   model_a_targets_ready_for_training_gate: "اكتمل بناء أهداف نموذج A.",
   training_first_touch_challenger: "تدريب وتقييم نموذج الوصول الأول لكل أفق زمني.",
-  training_first_touch_directional_challenger: "اختبار قدرة نموذج B على توقع +10% أو −10%، دون احتساب لا حدث كنجاح للبوابة.",
+  training_first_touch_directional_challenger: "اختبار Model B عبر فترات زمنية مستقلة؛ لا تُحتسب لا حدث كنجاح اتجاهي.",
   training_future_excursion_challenger: "تدريب وتقييم نموذج نطاق الصدمة لكل أفق زمني.",
   model_b_evidence_gate_failed_or_insufficient: "الأدلة أو العينات غير كافية لنشر نموذج B.",
-  model_b_directional_event_gate_failed_or_insufficient: "لم تتوفر أدلة اختبار كافية لاتجاهي +10% و−10%.",
+  model_b_directional_event_gate_failed_or_insufficient: "لم تتوفر أدلة اتجاهية كافية عبر فترات Walk‑Forward المستقلة.",
   model_b_challenger_rejected_champion_retained: "رُفض النموذج الجديد واحتُفظ بالنموذج المعتمد السابق.",
   model_a_evidence_gate_failed_or_insufficient: "الأدلة أو تغطية النطاق غير كافية لنشر نموذج A.",
   model_a_challenger_rejected_champion_retained: "رُفض نموذج A الجديد واحتُفظ بالنموذج السابق.",
@@ -52,7 +54,7 @@ const MESSAGE_LABELS = {
   creating_model_b_predictions: "إنشاء توقعات Model B قبل معرفة النتائج.",
   model_b_predictions_written_before_outcomes: "تم تثبيت توقعات Model B في السجل قبل نضج النتائج.",
   creating_future_excursion_predictions: "إنشاء نطاقات Model A قبل معرفة النتائج.",
-  model_a_predictions_written_before_outcomes: "تم تثبيت توقعات Model A قبل معرفة النتائج.",
+  model_a_predictions_written_before_outcomes: "تم تثبيت توقعات Model A قبل نضج النتائج.",
   maturing_eligible_model_b_predictions: "مطابقة التوقعات التي انتهى أفقها مع المسار الحقيقي.",
   eligible_model_b_outcomes_resolved: "اكتمل تقييم التوقعات المؤهلة.",
   building_dual_model_production_report: "حساب تقارير الأداء المنفصلة للنموذجين.",
@@ -62,15 +64,20 @@ const MESSAGE_LABELS = {
 
 const REASON_LABELS = {
   model_a_ready_model_b_directional_gate_wait: "نموذج A جاهز؛ نموذج B ينتظر أدلة اتجاهية كافية",
+  model_b_walk_forward_directional_support_wait: "فترات الاختبار المستقلة لا تحتوي دعمًا كافيًا لاتجاهي +10% و−10%",
+  model_b_walk_forward_split_wait: "تعذر تكوين فترات Walk‑Forward بعد الحذف والحظر الزمني",
+  insufficient_directional_support_across_untouched_periods: "لا توجد فترتان مستقلتان على الأقل بهما حالات كافية من الاتجاهين",
+  walk_forward_split_unavailable: "البيانات لا تكفي لتكوين تقسيم Walk‑Forward آمن",
   directional_event_evidence_gate_failed: "فشلت بوابة الأدلة الاتجاهية لنموذج B",
-  legacy_first_touch_gate_invalidated: "أُبطلت نسخة Model B القديمة لأنها اعتمدت على لا حدث",
+  legacy_first_touch_gate_invalidated: "أُبطلت نسخة Model B القديمة لأنها لا تستخدم بوابة Walk‑Forward الحالية",
   both_model_evidence_gates_pending: "بوابتا النموذجين ما زالتا قيد التحقق",
   dual_models_research_monitoring_only: "النموذجان جاهزان للمراقبة البحثية فقط",
   model_b_ready_model_a_evidence_gate_wait: "نموذج B جاهز؛ نموذج A ينتظر بوابة التغطية",
   no_valid_adaptive_shock_bundle: "لا توجد نسخة صالحة من نموذج A",
   no_first_touch_training_report: "لا يوجد تقرير تدريب لنموذج B بعد",
+  report_matches_current_walk_forward_directional_gate: "التقرير مطابق لبوابة Walk‑Forward الحالية",
   report_was_generated_by_an_older_gate_or_training_is_still_running: "التقرير قديم أو أن التدريب الجديد لم يكتمل بعد",
-  insufficient_directional_event_test_support: "فترة الاختبار لا تحتوي حالات كافية من +10% و−10%",
+  insufficient_directional_event_test_support: "الاختبار الأخير لا يحتوي حالات كافية من +10% و−10%",
   insufficient_high_confidence_directional_predictions: "لا توجد توقعات اتجاهية عالية الثقة بعدد كافٍ",
   insufficient_high_confidence_predictions_per_direction: "أحد الاتجاهين لا يملك توقعات عالية الثقة كافية",
   directional_empirical_precision_below_required_85pct: "دقة التوقعات الاتجاهية أقل من 85%",
@@ -124,9 +131,13 @@ function directionalSupport(report, horizon) {
   const metrics = current.metrics || {};
   const explicit = metrics.directional_test_support || {};
   const perClass = metrics.per_class || {};
+  const walkForward = metrics.walk_forward_support_audit || {};
+  const aggregate = walkForward.aggregate_event_support || {};
   return {
-    up: Number(explicit.UP_10 ?? perClass.UP_10?.support ?? 0),
-    down: Number(explicit.DOWN_10 ?? perClass.DOWN_10?.support ?? 0),
+    up: Number(explicit.UP_10 ?? aggregate.UP_10 ?? perClass.UP_10?.support ?? 0),
+    down: Number(explicit.DOWN_10 ?? aggregate.DOWN_10 ?? perClass.DOWN_10?.support ?? 0),
+    eligibleFolds: Number(walkForward.eligible_fold_count || 0),
+    foldCount: Number(walkForward.fold_count || 0),
     reason: current.reason || report?._meta?.reason || "no_first_touch_training_report",
     status: current.status || report?._meta?.status || "WAIT",
   };
@@ -135,15 +146,16 @@ function directionalSupport(report, horizon) {
 function waitTouchCards(report = {}, platformReason = "") {
   $("touchHorizonGrid").innerHTML = HORIZONS.map((h) => {
     const evidence = directionalSupport(report, h);
-    const reason = evidence.reason === "empirical_85pct_gate_passed_not_trading_promoted"
+    const reason = evidence.reason === "directional_empirical_85pct_gate_passed_not_trading_promoted"
       ? platformReason
       : evidence.reason;
     return `
       <article class="horizon-model-card wait-card">
-        <header><span>${h} دقيقة</span><strong>WAIT — GATE</strong></header>
+        <header><span>${h} دقيقة</span><strong>WAIT — WALK‑FORWARD</strong></header>
         <dl>
-          <div><dt>حالات +10% في الاختبار</dt><dd>${count(evidence.up)}</dd></div>
-          <div><dt>حالات −10% في الاختبار</dt><dd>${count(evidence.down)}</dd></div>
+          <div><dt>إجمالي حالات +10%</dt><dd>${count(evidence.up)}</dd></div>
+          <div><dt>إجمالي حالات −10%</dt><dd>${count(evidence.down)}</dd></div>
+          <div><dt>الفترات المؤهلة</dt><dd>${count(evidence.eligibleFolds)} من ${count(evidence.foldCount)}</dd></div>
           <div><dt>سبب عدم إصدار الاحتمال</dt><dd>${reasonLabel(reason || platformReason)}</dd></div>
         </dl>
       </article>`;
@@ -182,7 +194,7 @@ function renderStatus(status) {
 function summarizeTouchEvidence(report) {
   return HORIZONS.map((h) => {
     const evidence = directionalSupport(report, h);
-    return `${h}د: +${count(evidence.up)} / −${count(evidence.down)}`;
+    return `${h}د: +${count(evidence.up)} / −${count(evidence.down)} | ${count(evidence.eligibleFolds)}/${count(evidence.foldCount)} فترات`;
   }).join(" | ");
 }
 
@@ -194,7 +206,7 @@ function renderCatalog(catalog, touchReport = {}, production = {}) {
 
   $("shockState").textContent = shock.available ? "READY — RESEARCH" : "WAIT";
   $("shockVersion").textContent = shock.available ? shock.model_version : "لا يوجد نموذج مدرّب";
-  $("touchState").textContent = touch.available ? "READY — RESEARCH" : "WAIT — DIRECTIONAL GATE";
+  $("touchState").textContent = touch.available ? "READY — RESEARCH" : "WAIT — WALK‑FORWARD GATE";
   $("touchVersion").textContent = touch.available
     ? touch.model_version
     : reasonLabel(touch.availability_reason);
@@ -215,7 +227,7 @@ function renderCatalog(catalog, touchReport = {}, production = {}) {
   $("touchGate").innerHTML = `
     <div class="factor"><span>الاختبار</span><strong>${touch.gate}</strong></div>
     <div class="factor"><span>حالة تقرير البوابة</span><strong>${reportMeta.status || touch.training_report_status || "WAIT"} — ${reasonLabel(reportMeta.reason)}</strong></div>
-    <div class="factor"><span>دعم الاتجاهات في الاختبار</span><strong>${summarizeTouchEvidence(touchReport)}</strong></div>
+    <div class="factor"><span>دعم الاتجاهات عبر الفترات</span><strong>${summarizeTouchEvidence(touchReport)}</strong></div>
     <div class="factor"><span>الترقية للتداول</span><strong>غير مفعلة</strong></div>`;
 }
 
@@ -275,7 +287,7 @@ function renderLedger(rows, touchAvailable) {
   if (!rows.length) {
     body.innerHTML = `<tr><td colspan="8" class="empty">${touchAvailable
       ? "لم تنضج توقعات Model B المعتمدة بعد"
-      : "لا توجد نسخة Model B اجتازت البوابة؛ أُخفيت سجلات النسخ الملغاة"}</td></tr>`;
+      : "لا توجد نسخة Model B اجتازت بوابة Walk‑Forward؛ أُخفيت سجلات النسخ الملغاة"}</td></tr>`;
     return;
   }
   body.innerHTML = rows.slice(0, 100).map((row) => `
