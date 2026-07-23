@@ -139,74 +139,78 @@ def _initial_dataset(
             high_windows = sliding_window_view(highs[1:], steps)
             low_windows = sliding_window_view(lows[1:], steps)
 
-            for offset in range(0, len(valid_indices), chunk_rows):
-                chunk = valid_indices[offset : offset + chunk_rows]
-                future_highs = high_windows[chunk]
-                future_lows = low_windows[chunk]
-                max_price[chunk] = np.max(future_highs, axis=1)
-                min_price[chunk] = np.min(future_lows, axis=1)
+            for chunk_start in range(0, len(valid_indices), chunk_rows):
+                chunk_indices = valid_indices[chunk_start : chunk_start + chunk_rows]
+                if len(chunk_indices) == 0:
+                    continue
+                chunk_highs = high_windows[chunk_indices]
+                chunk_lows = low_windows[chunk_indices]
+                max_price[chunk_indices] = np.max(chunk_highs, axis=1)
+                min_price[chunk_indices] = np.min(chunk_lows, axis=1)
 
-                upper_hits = future_highs >= upper_barrier[chunk, None]
-                lower_hits = future_lows <= lower_barrier[chunk, None]
-                any_upper = np.any(upper_hits, axis=1)
-                any_lower = np.any(lower_hits, axis=1)
-                first_upper = np.where(any_upper, np.argmax(upper_hits, axis=1), steps + 1)
-                first_lower = np.where(any_lower, np.argmax(lower_hits, axis=1), steps + 1)
+                upper_hits = chunk_highs >= upper_barrier[chunk_indices, None]
+                lower_hits = chunk_lows <= lower_barrier[chunk_indices, None]
+                upper_any = upper_hits.any(axis=1)
+                lower_any = lower_hits.any(axis=1)
+                upper_first = np.where(upper_any, upper_hits.argmax(axis=1), steps + 1)
+                lower_first = np.where(lower_any, lower_hits.argmax(axis=1), steps + 1)
 
-                upper_first = first_upper < first_lower
-                lower_first = first_lower < first_upper
-                ambiguous = any_upper & any_lower & (first_upper == first_lower)
+                no_event = ~upper_any & ~lower_any
+                ambiguous = upper_any & lower_any & (upper_first == lower_first)
+                up_first = upper_any & (upper_first < lower_first)
+                down_first = lower_any & (lower_first < upper_first)
 
-                labels[chunk] = BarrierLabel.NO_EVENT.value
-                status[chunk] = "FINAL"
-                reason[chunk] = "neither_barrier_touched_in_complete_candle_path"
+                labels[chunk_indices[no_event]] = BarrierLabel.NO_EVENT.value
+                labels[chunk_indices[ambiguous]] = BarrierLabel.AMBIGUOUS.value
+                labels[chunk_indices[up_first]] = BarrierLabel.UP_10.value
+                labels[chunk_indices[down_first]] = BarrierLabel.DOWN_10.value
+                status[chunk_indices[no_event | up_first | down_first]] = "FINAL"
+                status[chunk_indices[ambiguous]] = "EXCLUDED"
+                reason[chunk_indices[no_event]] = "no_barrier_touched_within_horizon"
+                reason[chunk_indices[ambiguous]] = "both_barriers_touched_in_same_candle"
+                reason[chunk_indices[up_first]] = "upper_barrier_touched_first_by_candle_high"
+                reason[chunk_indices[down_first]] = "lower_barrier_touched_first_by_candle_low"
 
-                upper_rows = chunk[upper_first]
-                labels[upper_rows] = BarrierLabel.UP_10.value
-                reason[upper_rows] = "upper_barrier_touched_first_by_candle_high"
-                touch_price[upper_rows] = upper_barrier[upper_rows]
+                up_rows = chunk_indices[up_first]
+                if len(up_rows):
+                    up_steps = upper_first[up_first] + 1
+                    touch_timestamp[up_rows] = timestamps[up_rows + up_steps]
+                    touch_price[up_rows] = upper_barrier[up_rows]
+                down_rows = chunk_indices[down_first]
+                if len(down_rows):
+                    down_steps = lower_first[down_first] + 1
+                    touch_timestamp[down_rows] = timestamps[down_rows + down_steps]
+                    touch_price[down_rows] = lower_barrier[down_rows]
 
-                lower_rows = chunk[lower_first]
-                labels[lower_rows] = BarrierLabel.DOWN_10.value
-                reason[lower_rows] = "lower_barrier_touched_first_by_candle_low"
-                touch_price[lower_rows] = lower_barrier[lower_rows]
-
-                ambiguous_rows = chunk[ambiguous]
-                labels[ambiguous_rows] = BarrierLabel.AMBIGUOUS.value
-                status[ambiguous_rows] = "EXCLUDED"
-                reason[ambiguous_rows] = "both_barriers_touched_within_same_candle"
-
-                first_touch = np.minimum(first_upper, first_lower)
-                touched = first_touch <= steps
-                touched_rows = chunk[touched]
-                touch_timestamp[touched_rows] = timestamps[
-                    touched_rows + 1 + first_touch[touched]
-                ].astype(np.float64)
-
-        frames.append(
-            pd.DataFrame(
-                {
-                    "anchor_timestamp_ms": timestamps,
-                    "anchor_price": closes,
-                    "horizon_minutes": np.full(row_count, horizon_minutes, dtype=np.int16),
-                    "horizon_end_ms": horizon_end,
-                    "upper_barrier_price": upper_barrier,
-                    "lower_barrier_price": lower_barrier,
-                    "max_price": max_price,
-                    "min_price": min_price,
-                    "max_return": max_price / closes - 1.0,
-                    "min_return": min_price / closes - 1.0,
-                    "label": labels,
-                    "touch_timestamp_ms": touch_timestamp,
-                    "touch_price": touch_price,
-                    "status": status,
-                    "reason": reason,
-                },
-                columns=ANCHOR_COLUMNS,
-            )
+        max_return = max_price / closes - 1.0
+        min_return = min_price / closes - 1.0
+        frame = pd.DataFrame(
+            {
+                "anchor_timestamp_ms": timestamps,
+                "anchor_price": closes,
+                "horizon_minutes": horizon_minutes,
+                "horizon_end_ms": horizon_end,
+                "upper_barrier_price": upper_barrier,
+                "lower_barrier_price": lower_barrier,
+                "max_price": max_price,
+                "min_price": min_price,
+                "max_return": max_return,
+                "min_return": min_return,
+                "label": labels,
+                "touch_timestamp_ms": touch_timestamp,
+                "touch_price": touch_price,
+                "status": status,
+                "reason": reason,
+            },
+            columns=ANCHOR_COLUMNS,
         )
+        frames.append(frame)
 
-    return pd.concat(frames, ignore_index=True)
+    if not frames:
+        return pd.DataFrame(columns=ANCHOR_COLUMNS)
+    return pd.concat(frames, ignore_index=True).sort_values(
+        ["anchor_timestamp_ms", "horizon_minutes"], ignore_index=True
+    )
 
 
 def _row_from_index(
@@ -220,62 +224,29 @@ def _row_from_index(
     latest_timestamp_ms: int,
 ) -> dict[str, object]:
     horizon_ms = horizon_minutes * MINUTE_MS
-    horizon_end = anchor_timestamp_ms + horizon_ms
-    upper_price = anchor_price * (1.0 + config.upper_return)
-    lower_price = anchor_price * (1.0 + config.lower_return)
-    point_index = index_by_timestamp.get(anchor_timestamp_ms)
-
-    def payload(
-        *,
-        label: BarrierLabel,
-        status: str,
-        reason: str,
-        max_price: float | None = None,
-        min_price: float | None = None,
-        touch_timestamp_ms: int | None = None,
-        touch_price: float | None = None,
-    ) -> dict[str, object]:
+    start_index = index_by_timestamp.get(anchor_timestamp_ms)
+    if start_index is None:
         return {
             "anchor_timestamp_ms": anchor_timestamp_ms,
             "anchor_price": anchor_price,
             "horizon_minutes": horizon_minutes,
-            "horizon_end_ms": horizon_end,
-            "upper_barrier_price": upper_price,
-            "lower_barrier_price": lower_price,
-            "max_price": max_price,
-            "min_price": min_price,
-            "max_return": None if max_price is None else max_price / anchor_price - 1.0,
-            "min_return": None if min_price is None else min_price / anchor_price - 1.0,
-            "label": label.value,
-            "touch_timestamp_ms": touch_timestamp_ms,
-            "touch_price": touch_price,
-            "status": status,
-            "reason": reason,
+            "horizon_end_ms": anchor_timestamp_ms + horizon_ms,
+            "upper_barrier_price": anchor_price * (1.0 + config.upper_return),
+            "lower_barrier_price": anchor_price * (1.0 + config.lower_return),
+            "max_price": None,
+            "min_price": None,
+            "max_return": None,
+            "min_return": None,
+            "label": BarrierLabel.INCOMPLETE.value,
+            "touch_timestamp_ms": None,
+            "touch_price": None,
+            "status": "EXCLUDED",
+            "reason": "anchor_candle_missing_from_current_dataset",
         }
-
-    if point_index is None:
-        return payload(
-            label=BarrierLabel.INCOMPLETE,
-            status="EXCLUDED",
-            reason="anchor_candle_missing",
-        )
-
-    steps = horizon_ms // config.cadence_ms
-    path = points[point_index + 1 : min(len(points), point_index + steps + 1)]
-    max_price = max((candle.high for candle in path), default=None)
-    min_price = min((candle.low for candle in path), default=None)
-    if latest_timestamp_ms < horizon_end:
-        return payload(
-            label=BarrierLabel.INCOMPLETE,
-            status="PENDING",
-            reason="horizon_not_mature",
-            max_price=max_price,
-            min_price=min_price,
-        )
-
+    anchor = PricePoint(anchor_timestamp_ms, anchor_price)
     result = label_first_touch_candles(
-        PricePoint(anchor_timestamp_ms, anchor_price),
-        path,
+        anchor,
+        points[start_index + 1 :],
         BarrierConfig(
             upper_return=config.upper_return,
             lower_return=config.lower_return,
@@ -283,19 +254,63 @@ def _row_from_index(
         ),
         cadence_ms=config.cadence_ms,
     )
-    return payload(
-        label=result.label,
-        status=(
-            "FINAL"
-            if result.label not in {BarrierLabel.INCOMPLETE, BarrierLabel.AMBIGUOUS}
-            else "EXCLUDED"
-        ),
-        reason=result.reason,
-        max_price=max_price,
-        min_price=min_price,
-        touch_timestamp_ms=result.touch_timestamp_ms,
-        touch_price=result.touch_price,
+    horizon_end_ms = anchor_timestamp_ms + horizon_ms
+    status = (
+        "PENDING"
+        if horizon_end_ms > latest_timestamp_ms
+        else "FINAL"
+        if result.label not in {BarrierLabel.INCOMPLETE, BarrierLabel.AMBIGUOUS}
+        else "EXCLUDED"
     )
+    return {
+        "anchor_timestamp_ms": anchor_timestamp_ms,
+        "anchor_price": anchor_price,
+        "horizon_minutes": horizon_minutes,
+        "horizon_end_ms": horizon_end_ms,
+        "upper_barrier_price": anchor_price * (1.0 + config.upper_return),
+        "lower_barrier_price": anchor_price * (1.0 + config.lower_return),
+        "max_price": (
+            None
+            if result.max_favorable_excursion is None
+            else anchor_price * (1.0 + result.max_favorable_excursion)
+        ),
+        "min_price": (
+            None
+            if result.max_adverse_excursion is None
+            else anchor_price * (1.0 + result.max_adverse_excursion)
+        ),
+        "max_return": result.max_favorable_excursion,
+        "min_return": result.max_adverse_excursion,
+        "label": result.label.value,
+        "touch_timestamp_ms": result.touch_timestamp_ms,
+        "touch_price": result.touch_price,
+        "status": status,
+        "reason": result.reason,
+    }
+
+
+def _append_anchor_rows_without_all_na_concat_warning(
+    existing: pd.DataFrame,
+    rows: list[dict[str, object]],
+) -> pd.DataFrame:
+    """Append rows while making dtype resolution explicit for all-NA columns.
+
+    Pandas 2.x warns that concatenating an all-NA incoming column will change
+    dtype inference in a future release. All-NA incoming columns carry no dtype
+    information, so omit them from the concat input and restore the governed
+    schema afterwards. The values for the appended rows remain missing.
+    """
+
+    incoming = pd.DataFrame(rows, columns=ANCHOR_COLUMNS)
+    informative_columns = [
+        column for column in ANCHOR_COLUMNS if not incoming[column].isna().all()
+    ]
+    combined = pd.concat(
+        [existing, incoming[informative_columns]],
+        ignore_index=True,
+        sort=False,
+    )
+    return combined.reindex(columns=ANCHOR_COLUMNS)
 
 
 def update_anchor_dataset_from_candles_fast(
@@ -345,9 +360,7 @@ def update_anchor_dataset_from_candles_fast(
 
     combined = existing.copy()
     if new_rows:
-        combined = pd.concat(
-            [combined, pd.DataFrame(new_rows, columns=ANCHOR_COLUMNS)], ignore_index=True
-        )
+        combined = _append_anchor_rows_without_all_na_concat_warning(combined, new_rows)
 
     pending = (combined["status"] == "PENDING") & (
         combined["horizon_end_ms"] <= latest_timestamp_ms
