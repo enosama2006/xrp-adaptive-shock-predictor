@@ -11,6 +11,12 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+REQUIRED_DIRECTIONAL_PRODUCTION_ROWS = 100
+REQUIRED_ENVELOPE_ROWS_PER_HORIZON = 100
+REQUIRED_EMPIRICAL_PRECISION = 0.85
+REQUIRED_MARGINAL_INTERVAL_COVERAGE = 0.85
+EXPECTED_HORIZONS = {15, 30, 45, 60}
+
 
 @dataclass(frozen=True, slots=True)
 class ProductionReportPaths:
@@ -65,9 +71,7 @@ def _first_touch_metrics(ledger: pd.DataFrame) -> dict[str, Any]:
                 "high_confidence_directional_precision": (
                     None
                     if label not in event_labels or high_conf_predicted.empty
-                    else float(
-                        (high_conf_predicted["actual_label"] == label).mean()
-                    )
+                    else float((high_conf_predicted["actual_label"] == label).mean())
                 ),
             }
         brier: dict[str, float] = {}
@@ -97,24 +101,42 @@ def _first_touch_metrics(ledger: pd.DataFrame) -> dict[str, Any]:
         subset = high_conf_event[high_conf_event["predicted_label"] == label]
         directional_by_class[label] = {
             "predicted_count": int(len(subset)),
-            "precision": (
-                None if subset.empty else float((subset["actual_label"] == label).mean())
-            ),
+            "precision": None if subset.empty else float((subset["actual_label"] == label).mean()),
             "actual_support": int((evaluated["actual_label"] == label).sum()),
         }
 
+    directional_rows = int(len(high_conf_event))
+    directional_precision = (
+        None if high_conf_event.empty else float(high_conf_event["correct"].mean())
+    )
+    enough_sample = directional_rows >= REQUIRED_DIRECTIONAL_PRODUCTION_ROWS
+    precision_passed = (
+        directional_precision is not None
+        and directional_precision >= REQUIRED_EMPIRICAL_PRECISION
+    )
+    if not enough_sample:
+        monitoring_status = "MONITORING"
+        reason = "insufficient_matured_directional_predictions"
+    elif not precision_passed:
+        monitoring_status = "DRIFT_ALERT"
+        reason = "directional_precision_below_required_85pct"
+    else:
+        monitoring_status = "READY"
+        reason = "directional_production_monitoring_gate_passed"
+
     return {
-        "status": "READY",
+        "status": monitoring_status,
+        "reason": reason,
         "evaluated_rows": int(len(evaluated)),
         "overall_accuracy_diagnostic_only": float(evaluated["correct"].mean()),
         "all_class_high_confidence_rows": int(len(high_conf_all)),
         "all_class_high_confidence_accuracy_diagnostic_only": (
             None if high_conf_all.empty else float(high_conf_all["correct"].mean())
         ),
-        "directional_high_confidence_rows": int(len(high_conf_event)),
-        "directional_high_confidence_precision": (
-            None if high_conf_event.empty else float(high_conf_event["correct"].mean())
-        ),
+        "directional_high_confidence_rows": directional_rows,
+        "directional_high_confidence_precision": directional_precision,
+        "required_directional_production_rows": REQUIRED_DIRECTIONAL_PRODUCTION_ROWS,
+        "required_empirical_precision": REQUIRED_EMPIRICAL_PRECISION,
         "directional_high_confidence_by_class": directional_by_class,
         "per_horizon": per_horizon,
     }
@@ -164,22 +186,65 @@ def _envelope_metrics(predictions: pd.DataFrame, prices: pd.DataFrame) -> dict[s
             "reason": "no_matured_envelope_predictions",
             "evaluated_rows": 0,
         }
+
     frame = pd.DataFrame(rows)
     per_horizon: dict[str, Any] = {}
+    mature_horizons: set[int] = set()
+    coverage_passed_by_horizon: dict[int, bool] = {}
     for horizon, group in frame.groupby("horizon"):
-        per_horizon[str(int(horizon))] = {
-            "evaluated_rows": int(len(group)),
-            "max_interval_coverage": float(group["max_covered"].mean()),
-            "min_interval_coverage": float(group["min_covered"].mean()),
+        horizon_int = int(horizon)
+        evaluated_rows = int(len(group))
+        max_coverage = float(group["max_covered"].mean())
+        min_coverage = float(group["min_covered"].mean())
+        enough_rows = evaluated_rows >= REQUIRED_ENVELOPE_ROWS_PER_HORIZON
+        coverage_passed = (
+            max_coverage >= REQUIRED_MARGINAL_INTERVAL_COVERAGE
+            and min_coverage >= REQUIRED_MARGINAL_INTERVAL_COVERAGE
+        )
+        if enough_rows:
+            mature_horizons.add(horizon_int)
+        coverage_passed_by_horizon[horizon_int] = coverage_passed
+        per_horizon[str(horizon_int)] = {
+            "status": (
+                "MONITORING"
+                if not enough_rows
+                else "READY" if coverage_passed else "DRIFT_ALERT"
+            ),
+            "evaluated_rows": evaluated_rows,
+            "required_rows": REQUIRED_ENVELOPE_ROWS_PER_HORIZON,
+            "max_interval_coverage": max_coverage,
+            "min_interval_coverage": min_coverage,
             "joint_interval_coverage": float(
                 (group["max_covered"] & group["min_covered"]).mean()
             ),
             "max_median_mae": float(group["max_abs_error"].mean()),
             "min_median_mae": float(group["min_abs_error"].mean()),
         }
+
+    all_horizons_mature = mature_horizons == EXPECTED_HORIZONS
+    all_horizons_pass = all(
+        coverage_passed_by_horizon.get(horizon, False) for horizon in EXPECTED_HORIZONS
+    )
+    if not all_horizons_mature:
+        monitoring_status = "MONITORING"
+        reason = "insufficient_matured_predictions_per_horizon"
+    elif not all_horizons_pass:
+        monitoring_status = "DRIFT_ALERT"
+        reason = "marginal_interval_coverage_below_required_85pct"
+    else:
+        monitoring_status = "READY"
+        reason = "envelope_production_monitoring_gate_passed"
+
     return {
-        "status": "READY",
+        "status": monitoring_status,
+        "reason": reason,
         "evaluated_rows": int(len(frame)),
+        "required_rows_per_horizon": REQUIRED_ENVELOPE_ROWS_PER_HORIZON,
+        "required_marginal_interval_coverage": REQUIRED_MARGINAL_INTERVAL_COVERAGE,
+        "coverage_gate_basis": (
+            "upside and downside marginal 5-95% interval coverage are evaluated separately; "
+            "joint coverage is diagnostic and is naturally lower"
+        ),
         "max_interval_coverage": float(frame["max_covered"].mean()),
         "min_interval_coverage": float(frame["min_covered"].mean()),
         "joint_interval_coverage": float(
@@ -200,10 +265,10 @@ def build_production_report(
     first_touch = _first_touch_metrics(ledger)
     envelope = _envelope_metrics(envelope_predictions, prices)
     warnings: list[str] = []
-    if first_touch.get("directional_high_confidence_rows", 0) < 100:
-        warnings.append("insufficient_high_confidence_directional_first_touch_sample")
-    if envelope.get("evaluated_rows", 0) < 100:
-        warnings.append("insufficient_matured_envelope_sample")
+    if first_touch.get("status") != "READY":
+        warnings.append(f"first_touch_{first_touch.get('status', 'WAIT').lower()}:{first_touch.get('reason')}")
+    if envelope.get("status") != "READY":
+        warnings.append(f"future_envelope_{envelope.get('status', 'WAIT').lower()}:{envelope.get('reason')}")
     if runtime_status.get("state") == "WAIT":
         warnings.append(f"runtime_wait:{runtime_status.get('reason')}")
     elif runtime_status.get("state") == "PARTIAL_RESEARCH":
@@ -221,7 +286,9 @@ def build_production_report(
         "trading_readiness": "WAIT",
         "note": (
             "NO_EVENT accuracy is diagnostic only. Directional event evidence and "
-            "observed matured outcomes govern first-touch readiness; no metric guarantees profit."
+            "observed matured outcomes govern first-touch readiness. Model A live monitoring "
+            "requires sufficient samples for every horizon; joint interval coverage is not its "
+            "85% gate. No metric guarantees profit."
         ),
     }
 
