@@ -161,13 +161,7 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
         return {"_meta": meta, **horizons}
 
     def active_first_touch_ledger() -> Any:
-        if platform._bundle is None:
-            return platform.ledger.load().iloc[0:0]
-        frame = platform.ledger.load()
-        if frame.empty:
-            return frame
-        active_version = str(platform._bundle["model_version"])
-        return frame[frame["model_version"] == active_version].copy()
+        return platform._active_first_touch_ledger()
 
     def active_envelope_predictions() -> list[dict[str, Any]]:
         if platform.envelope.bundle is None or not platform.envelope.paths.predictions.exists():

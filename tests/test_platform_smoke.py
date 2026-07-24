@@ -9,7 +9,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from xasp.file_lock import LockUnavailableError
+from xasp.file_lock import InterProcessFileLock, LockUnavailableError
 from xasp.horizons import RESEARCH_HORIZONS_MINUTES
 from xasp.platform_api import create_app
 from xasp.platform_runtime import RuntimeConfig, RuntimePaths
@@ -121,6 +121,16 @@ def test_invalidated_first_touch_rows_are_hidden_from_public_ledger(tmp_path: Pa
 
     assert _endpoint(app, "/api/ledger")() == []
     assert _endpoint(app, "/api/models/first-touch/latest")() == []
+
+
+def test_first_touch_endpoints_do_not_read_ledger_without_a_model(tmp_path: Path) -> None:
+    paths = _paths(tmp_path)
+    platform = RealDataPlatformV2(paths, RuntimeConfig(bootstrap_start_ms=1))
+    app = create_app(platform, web_root=Path("."))
+
+    with InterProcessFileLock(platform.ledger.lock_path, timeout_s=0):
+        assert _endpoint(app, "/api/ledger")() == []
+        assert _endpoint(app, "/api/models/first-touch/latest")() == []
 
 
 def test_first_touch_report_marks_legacy_gate_output_as_stale(tmp_path: Path) -> None:
