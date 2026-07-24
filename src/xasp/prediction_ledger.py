@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import time
+from bisect import bisect_right
 from collections.abc import Iterable
 from contextlib import suppress
 from dataclasses import asdict, dataclass
@@ -206,31 +207,74 @@ class PredictionLedger:
             else "EXCLUDED"
         )
 
+    def _maturation_snapshot(
+        self,
+        resolved_at_ms: int,
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
+        """Load a stable ledger snapshot and release the lock before labeling."""
+
+        with InterProcessFileLock(self.lock_path, timeout_s=self.lock_timeout_s):
+            frame = self._load_unlocked()
+            if frame.empty:
+                return frame, frame
+            eligible = (frame["status"] == "PENDING") & (
+                frame["horizon_end_ms"] <= resolved_at_ms
+            )
+            return frame, frame.loc[eligible].copy()
+
+    def _apply_maturation_results(
+        self,
+        results: dict[str, FirstTouchResult],
+        resolved_at_ms: int,
+    ) -> pd.DataFrame:
+        """Merge computed outcomes into the latest ledger under a short write lock."""
+
+        with InterProcessFileLock(self.lock_path, timeout_s=self.lock_timeout_s):
+            frame = self._load_unlocked()
+            if frame.empty or not results:
+                return frame
+
+            row_by_prediction_id = {
+                str(frame.at[index, "prediction_id"]): int(index)
+                for index in frame.index
+            }
+            changed = False
+            for prediction_id, result in results.items():
+                index = row_by_prediction_id.get(prediction_id)
+                if index is None or frame.at[index, "status"] != "PENDING":
+                    continue
+                self._write_result(frame, index, result, resolved_at_ms)
+                changed = True
+
+            if changed:
+                self._save_unlocked(frame)
+                return self._load_unlocked()
+            return frame
+
     def mature(self, prices: Iterable[PricePoint], resolved_at_ms: int) -> pd.DataFrame:
         """Compatibility maturation for actual ordered point observations."""
 
         points = sorted(prices, key=lambda point: point.timestamp_ms)
-        with InterProcessFileLock(self.lock_path, timeout_s=self.lock_timeout_s):
-            frame = self._load_unlocked()
-            if frame.empty:
-                return frame
-            eligible = (frame["status"] == "PENDING") & (
-                frame["horizon_end_ms"] <= resolved_at_ms
+        frame, eligible = self._maturation_snapshot(resolved_at_ms)
+        if eligible.empty:
+            return frame
+
+        timestamps = [point.timestamp_ms for point in points]
+        results: dict[str, FirstTouchResult] = {}
+        for index in eligible.index:
+            anchor = PricePoint(
+                timestamp_ms=int(eligible.at[index, "anchor_timestamp_ms"]),
+                price=float(eligible.at[index, "anchor_price"]),
             )
-            for index in frame.index[eligible]:
-                anchor = PricePoint(
-                    timestamp_ms=int(frame.at[index, "anchor_timestamp_ms"]),
-                    price=float(frame.at[index, "anchor_price"]),
-                )
-                horizon_ms = int(frame.at[index, "horizon_minutes"]) * 60_000
-                result = label_first_touch(
-                    anchor,
-                    points,
-                    BarrierConfig(horizon_ms=horizon_ms),
-                )
-                self._write_result(frame, int(index), result, resolved_at_ms)
-            self._save_unlocked(frame)
-            return self._load_unlocked()
+            horizon_ms = int(eligible.at[index, "horizon_minutes"]) * 60_000
+            path_start = bisect_right(timestamps, anchor.timestamp_ms)
+            path_end = bisect_right(timestamps, anchor.timestamp_ms + horizon_ms)
+            results[str(eligible.at[index, "prediction_id"])] = label_first_touch(
+                anchor,
+                points[path_start:path_end],
+                BarrierConfig(horizon_ms=horizon_ms),
+            )
+        return self._apply_maturation_results(results, resolved_at_ms)
 
     def mature_candles(
         self,
@@ -242,25 +286,24 @@ class PredictionLedger:
         """Mature predictions using gap-safe OHLC barrier detection."""
 
         ordered = sorted(candles, key=lambda candle: candle.timestamp_ms)
-        with InterProcessFileLock(self.lock_path, timeout_s=self.lock_timeout_s):
-            frame = self._load_unlocked()
-            if frame.empty:
-                return frame
-            eligible = (frame["status"] == "PENDING") & (
-                frame["horizon_end_ms"] <= resolved_at_ms
+        frame, eligible = self._maturation_snapshot(resolved_at_ms)
+        if eligible.empty:
+            return frame
+
+        timestamps = [candle.timestamp_ms for candle in ordered]
+        results: dict[str, FirstTouchResult] = {}
+        for index in eligible.index:
+            anchor = PricePoint(
+                timestamp_ms=int(eligible.at[index, "anchor_timestamp_ms"]),
+                price=float(eligible.at[index, "anchor_price"]),
             )
-            for index in frame.index[eligible]:
-                anchor = PricePoint(
-                    timestamp_ms=int(frame.at[index, "anchor_timestamp_ms"]),
-                    price=float(frame.at[index, "anchor_price"]),
-                )
-                horizon_ms = int(frame.at[index, "horizon_minutes"]) * 60_000
-                result = label_first_touch_candles(
-                    anchor,
-                    ordered,
-                    BarrierConfig(horizon_ms=horizon_ms),
-                    cadence_ms=cadence_ms,
-                )
-                self._write_result(frame, int(index), result, resolved_at_ms)
-            self._save_unlocked(frame)
-            return self._load_unlocked()
+            horizon_ms = int(eligible.at[index, "horizon_minutes"]) * 60_000
+            path_start = bisect_right(timestamps, anchor.timestamp_ms)
+            path_end = bisect_right(timestamps, anchor.timestamp_ms + horizon_ms)
+            results[str(eligible.at[index, "prediction_id"])] = label_first_touch_candles(
+                anchor,
+                ordered[path_start:path_end],
+                BarrierConfig(horizon_ms=horizon_ms),
+                cadence_ms=cadence_ms,
+            )
+        return self._apply_maturation_results(results, resolved_at_ms)
