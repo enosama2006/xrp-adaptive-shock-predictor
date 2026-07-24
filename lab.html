@@ -13,13 +13,19 @@
     <header class="lab-hero">
       <div>
         <div class="lab-breadcrumb"><a href="/">المنصة الرئيسية</a><span>←</span><strong>مختبر النماذج</strong></div>
-        <p class="eyebrow">MODEL RESEARCH LAB · XASP 1.7</p>
+        <p class="eyebrow">MODEL RESEARCH LAB · XASP 1.7.0</p>
         <h1>خلفية النموذج، أدلة تدريبه، ومخرجاته أمامك</h1>
         <p>صفحة شفافية وتجربة بحثية تعرض الخوارزميات الفعلية، حالة كل أفق، مقاييس الاختبار الزمني، التحليل الإحصائي، ومدخلات النموذج. تجارب هذه الصفحة لا تُحفظ كتوقعات حية ولا تغيّر النموذج المعتمد.</p>
       </div>
-      <div class="lab-live-card">
-        <span id="labConnectionDot" class="dot pending"></span>
-        <div><strong id="labConnection">جاري قراءة المنصة…</strong><small id="labUpdated">—</small></div>
+      <div class="lab-hero-actions">
+        <div class="lab-live-card">
+          <span id="labConnectionDot" class="dot pending"></span>
+          <div><strong id="labConnection">جاري قراءة المنصة…</strong><small id="labUpdated">—</small></div>
+        </div>
+        <button id="generateRuntimeReportButton" class="report-button" type="button">
+          <span>إنتاج تقرير تشخيصي نصي</span>
+          <small>النماذج · البيانات · API · الواجهة</small>
+        </button>
       </div>
     </header>
 
@@ -29,6 +35,7 @@
       <button data-tab="evaluation">التدريب والتقييم</button>
       <button data-tab="statistics">التحليل الإحصائي</button>
       <button data-tab="experiment">تجربة النموذج</button>
+      <button data-tab="report">تقرير التشغيل</button>
       <button data-tab="raw">المخرجات الخام</button>
     </nav>
 
@@ -121,6 +128,28 @@
         </article>
       </div>
       <section class="governance-note"><strong>تنبيه:</strong> التعديل اليدوي للخصائص ينتج سيناريو افتراضيًا قد يكون خارج توزيع التدريب. النتيجة تبقى <code>WAIT</code>، لا تُضاف إلى سجل التوقعات، ولا تمثل أمر شراء أو بيع.</section>
+    </section>
+
+    <section id="tab-report" class="lab-tab">
+      <article class="lab-panel report-panel">
+        <div class="report-heading">
+          <div>
+            <span class="section-kicker">RUNTIME DIAGNOSTICS</span>
+            <h2>تقرير تشخيصي شامل لحالة المنصة</h2>
+            <p class="muted">يفحص نقاط API الفعلية، حالة البيانات والنماذج، بوابات كل أفق، وعناصر واجهة المختبر. لا يشغّل تدريبًا ولا يغيّر أي ملف أو نموذج.</p>
+          </div>
+          <div class="report-actions">
+            <button id="rerunRuntimeReportButton" class="primary-button" type="button">إنشاء تقرير جديد</button>
+            <button id="copyRuntimeReportButton" class="secondary-button" type="button" disabled>نسخ التقرير</button>
+            <button id="downloadRuntimeReportButton" class="secondary-button" type="button" disabled>تنزيل TXT</button>
+          </div>
+        </div>
+        <div id="runtimeReportStatus" class="report-status" aria-live="polite">
+          اضغط «إنشاء تقرير جديد» لفحص التشغيل الحالي.
+        </div>
+        <div id="runtimeReportSummary" class="report-summary-grid"></div>
+        <pre id="runtimeReportText" class="runtime-report" tabindex="0">لم يُنشأ تقرير بعد.</pre>
+      </article>
     </section>
 
     <section id="tab-raw" class="lab-tab">

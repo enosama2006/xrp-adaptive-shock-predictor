@@ -41,6 +41,45 @@ def test_lab_routes_are_published_and_static_page_is_mounted(tmp_path: Path) -> 
     assert "/lab.css" in lab_route_paths
 
 
+def test_lab_runtime_report_covers_models_apis_and_interface_controls() -> None:
+    html = Path("lab.html").read_text(encoding="utf-8")
+    javascript = Path("lab.js").read_text(encoding="utf-8")
+
+    for element_id in (
+        "generateRuntimeReportButton",
+        "rerunRuntimeReportButton",
+        "copyRuntimeReportButton",
+        "downloadRuntimeReportButton",
+        "runtimeReportStatus",
+        "runtimeReportSummary",
+        "runtimeReportText",
+    ):
+        assert f'id="{element_id}"' in html
+
+    for endpoint in (
+        "/api/health",
+        "/api/status",
+        "/api/models",
+        "/api/lab/overview",
+        "/api/lab/current-inputs",
+        "/api/governance",
+        "/api/reports/data-integrity",
+        "/api/reports/training/adaptive-shock",
+        "/api/reports/training/first-touch",
+        "/api/reports/production",
+        "/api/models/adaptive-shock/latest",
+        "/api/models/first-touch/latest",
+        "/api/ledger?limit=1",
+        "/api/market/latest",
+    ):
+        assert f'path: "{endpoint}"' in javascript
+
+    assert "function inspectInterface()" in javascript
+    assert "function buildRuntimeReport(" in javascript
+    assert "navigator.clipboard?.writeText" in javascript
+    assert "URL.createObjectURL(blob)" in javascript
+
+
 def test_lab_is_fail_closed_without_governed_model_bundle(tmp_path: Path) -> None:
     platform = RealDataPlatformV2(_paths(tmp_path), RuntimeConfig(bootstrap_start_ms=1))
     service = ModelLabService(platform)
