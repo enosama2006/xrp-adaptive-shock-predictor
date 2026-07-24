@@ -1,9 +1,11 @@
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Event
 
 import pytest
 
-from xasp.labeling import PricePoint
+import xasp.prediction_ledger as prediction_ledger_module
+from xasp.labeling import CandlePoint, FirstTouchResult, PricePoint
 from xasp.prediction_ledger import PredictionLedger, PredictionRecord
 
 
@@ -91,6 +93,66 @@ def test_concurrent_appends_do_not_lose_predictions(tmp_path: Path) -> None:
     saved = PredictionLedger(path).load()
     assert len(saved) == len(records)
     assert saved["prediction_id"].nunique() == len(records)
+    assert not path.with_suffix(".parquet.lock").exists()
+
+
+def test_maturation_computes_without_blocking_reads_or_appends(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "predictions.parquet"
+    ledger = PredictionLedger(path)
+    first = make_record()
+    second = make_record(
+        created_at_ms=2 * 60_000,
+        anchor_timestamp_ms=2 * 60_000,
+    )
+    ledger.append([first])
+    candles = [
+        CandlePoint(
+            timestamp_ms=minute * 60_000,
+            open=1.0,
+            high=1.01,
+            low=0.99,
+            close=1.0,
+        )
+        for minute in range(2, 17)
+    ]
+    computation_started = Event()
+    release_computation = Event()
+    original_label = prediction_ledger_module.label_first_touch_candles
+
+    def blocking_label(*args: object, **kwargs: object) -> FirstTouchResult:
+        computation_started.set()
+        if not release_computation.wait(timeout=5):
+            raise TimeoutError("test did not release maturation computation")
+        return original_label(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(
+        prediction_ledger_module,
+        "label_first_touch_candles",
+        blocking_label,
+    )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        future = executor.submit(
+            ledger.mature_candles,
+            candles,
+            16 * 60_000,
+        )
+        assert computation_started.wait(timeout=2)
+        concurrent = PredictionLedger(path, lock_timeout_s=0)
+        try:
+            assert len(concurrent.load()) == 1
+            concurrent.append([second])
+        finally:
+            release_computation.set()
+        matured = future.result(timeout=5)
+
+    first_row = matured[matured["prediction_id"] == first.prediction_id].iloc[0]
+    second_row = matured[matured["prediction_id"] == second.prediction_id].iloc[0]
+    assert first_row["status"] == "FINAL"
+    assert second_row["status"] == "PENDING"
     assert not path.with_suffix(".parquet.lock").exists()
 
 
