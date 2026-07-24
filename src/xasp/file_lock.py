@@ -7,12 +7,17 @@ import json
 import os
 import time
 from pathlib import Path
+from threading import Lock
 from types import TracebackType
 from uuid import uuid4
 
 
 class LockUnavailableError(RuntimeError):
     """Raised when an active process keeps a lock beyond the allowed timeout."""
+
+
+_ACTIVE_LOCKS_GUARD = Lock()
+_ACTIVE_LOCK_TOKENS: dict[str, str] = {}
 
 
 class InterProcessFileLock:
@@ -29,17 +34,29 @@ class InterProcessFileLock:
         timeout_s: float = 10.0,
         poll_interval_s: float = 0.05,
         invalid_lock_stale_after_s: float = 300.0,
+        release_retries: int = 5,
+        release_retry_delay_s: float = 0.05,
     ) -> None:
         if timeout_s < 0:
             raise ValueError("timeout_s must be non-negative")
         if poll_interval_s <= 0:
             raise ValueError("poll_interval_s must be positive")
+        if release_retries < 1:
+            raise ValueError("release_retries must be at least one")
+        if release_retry_delay_s < 0:
+            raise ValueError("release_retry_delay_s must be non-negative")
         self.path = path
         self.timeout_s = timeout_s
         self.poll_interval_s = poll_interval_s
         self.invalid_lock_stale_after_s = invalid_lock_stale_after_s
+        self.release_retries = release_retries
+        self.release_retry_delay_s = release_retry_delay_s
         self._token = uuid4().hex
         self._acquired = False
+
+    @property
+    def _registry_key(self) -> str:
+        return os.path.normcase(os.path.abspath(self.path))
 
     @staticmethod
     def _process_is_running(pid: int) -> bool:
@@ -89,7 +106,12 @@ class InterProcessFileLock:
         try:
             payload = json.loads(original.decode("utf-8"))
             pid = int(payload["pid"])
-            stale = not self._process_is_running(pid)
+            token = str(payload["token"])
+            if pid == os.getpid():
+                with _ACTIVE_LOCKS_GUARD:
+                    stale = _ACTIVE_LOCK_TOKENS.get(self._registry_key) != token
+            else:
+                stale = not self._process_is_running(pid)
         except (KeyError, TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError):
             age_s = max(0.0, time.time() - stat.st_mtime)
             stale = age_s >= self.invalid_lock_stale_after_s
@@ -122,39 +144,59 @@ class InterProcessFileLock:
         ).encode("utf-8")
 
         while True:
-            try:
-                descriptor = os.open(
-                    self.path,
-                    os.O_CREAT | os.O_EXCL | os.O_WRONLY,
-                    0o600,
-                )
-            except FileExistsError as exc:
+            descriptor: int | None = None
+            creation_error: FileExistsError | None = None
+            with _ACTIVE_LOCKS_GUARD:
+                try:
+                    descriptor = os.open(
+                        self.path,
+                        os.O_CREAT | os.O_EXCL | os.O_WRONLY,
+                        0o600,
+                    )
+                except FileExistsError as exc:
+                    creation_error = exc
+                else:
+                    try:
+                        os.write(descriptor, payload)
+                    finally:
+                        os.close(descriptor)
+                    _ACTIVE_LOCK_TOKENS[self._registry_key] = self._token
+                    self._acquired = True
+                    return
+
+            if creation_error is not None:
                 if self._break_stale_lock():
                     continue
                 if time.monotonic() >= deadline:
                     raise LockUnavailableError(
                         f"lock is held by another active process: {self.path}"
-                    ) from exc
+                    ) from creation_error
                 time.sleep(self.poll_interval_s)
                 continue
 
-            try:
-                os.write(descriptor, payload)
-            finally:
-                os.close(descriptor)
-            self._acquired = True
-            return
+            raise RuntimeError(f"failed to create lock without an OS error: {self.path}")
 
     def release(self) -> None:
         if not self._acquired:
             return
         try:
-            payload = json.loads(self.path.read_text(encoding="utf-8"))
-            if payload.get("token") == self._token:
-                self.path.unlink()
-        except (FileNotFoundError, OSError, ValueError, json.JSONDecodeError):
-            pass
+            for attempt in range(self.release_retries):
+                try:
+                    payload = json.loads(self.path.read_text(encoding="utf-8"))
+                    if payload.get("token") != self._token:
+                        break
+                    self.path.unlink()
+                    break
+                except FileNotFoundError:
+                    break
+                except (OSError, ValueError, json.JSONDecodeError):
+                    if attempt + 1 >= self.release_retries:
+                        break
+                    time.sleep(self.release_retry_delay_s * (attempt + 1))
         finally:
+            with _ACTIVE_LOCKS_GUARD:
+                if _ACTIVE_LOCK_TOKENS.get(self._registry_key) == self._token:
+                    del _ACTIVE_LOCK_TOKENS[self._registry_key]
             self._acquired = False
 
     def __enter__(self) -> InterProcessFileLock:
