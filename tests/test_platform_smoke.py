@@ -5,8 +5,11 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import pytest
 from fastapi import FastAPI
+from fastapi.testclient import TestClient
 
+from xasp.file_lock import LockUnavailableError
 from xasp.horizons import RESEARCH_HORIZONS_MINUTES
 from xasp.platform_api import create_app
 from xasp.platform_runtime import RuntimeConfig, RuntimePaths
@@ -70,6 +73,29 @@ def test_platform_wires_routes_without_network_or_market_fabrication(tmp_path: P
     assert horizon_payload["independent_gates"] is True
     assert horizon_payload["trading_promoted"] is False
     assert platform.price_store.stats().max_timestamp_ms is None
+
+
+def test_second_server_cannot_use_the_same_data_directory(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    paths = _paths(tmp_path)
+    first = create_app(
+        RealDataPlatformV2(paths, RuntimeConfig(bootstrap_start_ms=1)),
+        web_root=Path("."),
+    )
+    second = create_app(
+        RealDataPlatformV2(paths, RuntimeConfig(bootstrap_start_ms=1)),
+        web_root=Path("."),
+    )
+    monkeypatch.setattr(RealDataPlatformV2, "run_cycle", lambda self: {"state": "WAIT"})
+
+    with TestClient(first):
+        with pytest.raises(LockUnavailableError, match="another active process"):
+            with TestClient(second):
+                pass
+
+    assert not (paths.ledger.parent / ".xasp-runtime.lock").exists()
 
 
 def test_invalidated_first_touch_rows_are_hidden_from_public_ledger(tmp_path: Path) -> None:
