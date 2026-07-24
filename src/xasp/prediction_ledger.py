@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import json
+import time
 from collections.abc import Iterable
+from contextlib import suppress
 from dataclasses import asdict, dataclass
 from hashlib import sha256
 from pathlib import Path
+from uuid import uuid4
 
 import pandas as pd
 
+from .file_lock import InterProcessFileLock
 from .labeling import (
     BarrierConfig,
     BarrierLabel,
@@ -110,10 +114,25 @@ class PredictionRecord:
 class PredictionLedger:
     """Append-only prediction store; only outcome fields may mature later."""
 
-    def __init__(self, path: Path) -> None:
+    def __init__(
+        self,
+        path: Path,
+        *,
+        lock_timeout_s: float = 10.0,
+        replace_retries: int = 5,
+        retry_delay_s: float = 0.05,
+    ) -> None:
+        if replace_retries < 1:
+            raise ValueError("replace_retries must be at least one")
+        if retry_delay_s < 0:
+            raise ValueError("retry_delay_s must be non-negative")
         self.path = path
+        self.lock_path = path.with_suffix(path.suffix + ".lock")
+        self.lock_timeout_s = lock_timeout_s
+        self.replace_retries = replace_retries
+        self.retry_delay_s = retry_delay_s
 
-    def load(self) -> pd.DataFrame:
+    def _load_unlocked(self) -> pd.DataFrame:
         if not self.path.exists():
             return pd.DataFrame(columns=LEDGER_COLUMNS)
         frame = pd.read_parquet(self.path)
@@ -124,28 +143,51 @@ class PredictionLedger:
             ["anchor_timestamp_ms", "horizon_minutes", "prediction_id"], ignore_index=True
         )
 
-    def _save(self, frame: pd.DataFrame) -> None:
+    def load(self) -> pd.DataFrame:
+        with InterProcessFileLock(self.lock_path, timeout_s=self.lock_timeout_s):
+            return self._load_unlocked()
+
+    def _save_unlocked(self, frame: pd.DataFrame) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         normalized = frame[LEDGER_COLUMNS].sort_values(
             ["anchor_timestamp_ms", "horizon_minutes", "prediction_id"], ignore_index=True
         )
-        temporary = self.path.with_suffix(self.path.suffix + ".tmp")
-        normalized.to_parquet(temporary, index=False)
-        temporary.replace(self.path)
+        temporary = self.path.with_name(
+            f".{self.path.name}.{uuid4().hex}.tmp"
+        )
+        try:
+            normalized.to_parquet(temporary, index=False)
+            for attempt in range(self.replace_retries):
+                try:
+                    temporary.replace(self.path)
+                    break
+                except PermissionError:
+                    if attempt + 1 >= self.replace_retries:
+                        raise
+                    time.sleep(self.retry_delay_s * (attempt + 1))
+        finally:
+            with suppress(OSError):
+                temporary.unlink(missing_ok=True)
 
     def append(self, records: Iterable[PredictionRecord]) -> pd.DataFrame:
-        existing = self.load()
-        new_rows = pd.DataFrame([record.to_row() for record in records], columns=LEDGER_COLUMNS)
-        combined = pd.concat([existing, new_rows], ignore_index=True)
-        duplicates = combined.duplicated("prediction_id", keep=False)
-        if duplicates.any():
-            duplicate_rows = combined[duplicates]
-            for _, group in duplicate_rows.groupby("prediction_id"):
-                if group["record_hash"].nunique() != 1:
-                    raise ValueError("prediction_id collision with different immutable payload")
-            combined = combined.drop_duplicates("prediction_id", keep="first")
-        self._save(combined)
-        return self.load()
+        with InterProcessFileLock(self.lock_path, timeout_s=self.lock_timeout_s):
+            existing = self._load_unlocked()
+            new_rows = pd.DataFrame(
+                [record.to_row() for record in records],
+                columns=LEDGER_COLUMNS,
+            )
+            combined = pd.concat([existing, new_rows], ignore_index=True)
+            duplicates = combined.duplicated("prediction_id", keep=False)
+            if duplicates.any():
+                duplicate_rows = combined[duplicates]
+                for _, group in duplicate_rows.groupby("prediction_id"):
+                    if group["record_hash"].nunique() != 1:
+                        raise ValueError(
+                            "prediction_id collision with different immutable payload"
+                        )
+                combined = combined.drop_duplicates("prediction_id", keep="first")
+            self._save_unlocked(combined)
+            return self._load_unlocked()
 
     @staticmethod
     def _write_result(
@@ -168,24 +210,27 @@ class PredictionLedger:
         """Compatibility maturation for actual ordered point observations."""
 
         points = sorted(prices, key=lambda point: point.timestamp_ms)
-        frame = self.load()
-        if frame.empty:
-            return frame
-        eligible = (frame["status"] == "PENDING") & (frame["horizon_end_ms"] <= resolved_at_ms)
-        for index in frame.index[eligible]:
-            anchor = PricePoint(
-                timestamp_ms=int(frame.at[index, "anchor_timestamp_ms"]),
-                price=float(frame.at[index, "anchor_price"]),
+        with InterProcessFileLock(self.lock_path, timeout_s=self.lock_timeout_s):
+            frame = self._load_unlocked()
+            if frame.empty:
+                return frame
+            eligible = (frame["status"] == "PENDING") & (
+                frame["horizon_end_ms"] <= resolved_at_ms
             )
-            horizon_ms = int(frame.at[index, "horizon_minutes"]) * 60_000
-            result = label_first_touch(
-                anchor,
-                points,
-                BarrierConfig(horizon_ms=horizon_ms),
-            )
-            self._write_result(frame, int(index), result, resolved_at_ms)
-        self._save(frame)
-        return self.load()
+            for index in frame.index[eligible]:
+                anchor = PricePoint(
+                    timestamp_ms=int(frame.at[index, "anchor_timestamp_ms"]),
+                    price=float(frame.at[index, "anchor_price"]),
+                )
+                horizon_ms = int(frame.at[index, "horizon_minutes"]) * 60_000
+                result = label_first_touch(
+                    anchor,
+                    points,
+                    BarrierConfig(horizon_ms=horizon_ms),
+                )
+                self._write_result(frame, int(index), result, resolved_at_ms)
+            self._save_unlocked(frame)
+            return self._load_unlocked()
 
     def mature_candles(
         self,
@@ -197,22 +242,25 @@ class PredictionLedger:
         """Mature predictions using gap-safe OHLC barrier detection."""
 
         ordered = sorted(candles, key=lambda candle: candle.timestamp_ms)
-        frame = self.load()
-        if frame.empty:
-            return frame
-        eligible = (frame["status"] == "PENDING") & (frame["horizon_end_ms"] <= resolved_at_ms)
-        for index in frame.index[eligible]:
-            anchor = PricePoint(
-                timestamp_ms=int(frame.at[index, "anchor_timestamp_ms"]),
-                price=float(frame.at[index, "anchor_price"]),
+        with InterProcessFileLock(self.lock_path, timeout_s=self.lock_timeout_s):
+            frame = self._load_unlocked()
+            if frame.empty:
+                return frame
+            eligible = (frame["status"] == "PENDING") & (
+                frame["horizon_end_ms"] <= resolved_at_ms
             )
-            horizon_ms = int(frame.at[index, "horizon_minutes"]) * 60_000
-            result = label_first_touch_candles(
-                anchor,
-                ordered,
-                BarrierConfig(horizon_ms=horizon_ms),
-                cadence_ms=cadence_ms,
-            )
-            self._write_result(frame, int(index), result, resolved_at_ms)
-        self._save(frame)
-        return self.load()
+            for index in frame.index[eligible]:
+                anchor = PricePoint(
+                    timestamp_ms=int(frame.at[index, "anchor_timestamp_ms"]),
+                    price=float(frame.at[index, "anchor_price"]),
+                )
+                horizon_ms = int(frame.at[index, "horizon_minutes"]) * 60_000
+                result = label_first_touch_candles(
+                    anchor,
+                    ordered,
+                    BarrierConfig(horizon_ms=horizon_ms),
+                    cadence_ms=cadence_ms,
+                )
+                self._write_result(frame, int(index), result, resolved_at_ms)
+            self._save_unlocked(frame)
+            return self._load_unlocked()

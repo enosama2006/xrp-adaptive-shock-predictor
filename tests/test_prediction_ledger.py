@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import pytest
@@ -69,3 +70,69 @@ def test_prediction_remains_pending_before_horizon(tmp_path: Path) -> None:
         resolved_at_ms=10 * 60_000,
     )
     assert pending.iloc[0]["status"] == "PENDING"
+
+
+def test_concurrent_appends_do_not_lose_predictions(tmp_path: Path) -> None:
+    path = tmp_path / "predictions.parquet"
+    records = [
+        make_record(
+            created_at_ms=(index + 1) * 60_000,
+            anchor_timestamp_ms=(index + 1) * 60_000,
+        )
+        for index in range(12)
+    ]
+
+    def append(record: PredictionRecord) -> None:
+        PredictionLedger(path).append([record])
+
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        list(executor.map(append, records))
+
+    saved = PredictionLedger(path).load()
+    assert len(saved) == len(records)
+    assert saved["prediction_id"].nunique() == len(records)
+    assert not path.with_suffix(".parquet.lock").exists()
+
+
+def test_windows_replace_permission_error_is_retried(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "predictions.parquet"
+    original_replace = Path.replace
+    attempts = 0
+
+    def flaky_replace(source: Path, target: Path) -> Path:
+        nonlocal attempts
+        if target == path and attempts < 2:
+            attempts += 1
+            raise PermissionError("simulated Windows file lock")
+        return original_replace(source, target)
+
+    monkeypatch.setattr(Path, "replace", flaky_replace)
+    ledger = PredictionLedger(path, replace_retries=3, retry_delay_s=0)
+
+    saved = ledger.append([make_record()])
+
+    assert len(saved) == 1
+    assert attempts == 2
+    assert list(tmp_path.glob(".predictions.parquet.*.tmp")) == []
+
+
+def test_temporary_file_is_cleaned_when_replace_never_succeeds(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "predictions.parquet"
+
+    def denied_replace(source: Path, target: Path) -> Path:
+        raise PermissionError("simulated persistent Windows file lock")
+
+    monkeypatch.setattr(Path, "replace", denied_replace)
+    ledger = PredictionLedger(path, replace_retries=2, retry_delay_s=0)
+
+    with pytest.raises(PermissionError, match="persistent Windows"):
+        ledger.append([make_record()])
+
+    assert list(tmp_path.glob(".predictions.parquet.*.tmp")) == []
+    assert not path.with_suffix(".parquet.lock").exists()

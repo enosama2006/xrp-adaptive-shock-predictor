@@ -16,6 +16,7 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 
+from .file_lock import InterProcessFileLock
 from .first_touch_v4 import FIRST_TOUCH_GATE_VERSION
 from .governance_routes import build_governance_router
 from .horizons import (
@@ -76,14 +77,20 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        task = asyncio.create_task(worker(), name="xasp-real-data-worker")
-        app.state.worker = task
-        try:
-            yield
-        finally:
-            task.cancel()
-            with suppress(asyncio.CancelledError):
-                await task
+        runtime_lock = InterProcessFileLock(
+            platform.paths.ledger.parent / ".xasp-runtime.lock",
+            timeout_s=0,
+        )
+        with runtime_lock:
+            app.state.runtime_lock = runtime_lock
+            task = asyncio.create_task(worker(), name="xasp-real-data-worker")
+            app.state.worker = task
+            try:
+                yield
+            finally:
+                task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await task
 
     app = FastAPI(
         title="XASP Real Data Platform",
