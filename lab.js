@@ -1,6 +1,6 @@
 const $ = (id) => document.getElementById(id);
 const HORIZONS = [15, 30, 45, 60, 120, 180, 240, 480];
-const APP_VERSION = "1.7.0";
+const APP_VERSION = "1.8.0";
 const REPORT_ENDPOINTS = [
   { path: "/api/health", label: "صحة الخدمة", critical: true },
   { path: "/api/status", label: "حالة دورة التشغيل", critical: true },
@@ -113,7 +113,7 @@ function modelCard(model, touch = false) {
   const waiting = model.waiting_horizons || [];
   return `<article class="model-lab-card ${touch ? "touch" : ""}">
     <header><div><span class="model-number">${touch ? "MODEL B" : "MODEL A"}</span><h2>${esc(model.display_name)}</h2></div><span class="state-pill ${stateClass(model.state)}">${esc(model.state)}</span></header>
-    <p>${touch ? "احتمالات الوصول الأول إلى +10% أو −10% أو عدم وقوع الحدث." : "توزيعات كمية لأقصى صعود وأدنى هبوط داخل كل أفق."}</p>
+    <p>${touch ? "احتمالات الوصول الأول إلى +2% أو −2% أو عدم وقوع الحدث." : "توزيعات كمية لأقصى صعود وأدنى هبوط داخل كل أفق."}</p>
     <div class="model-summary-grid">
       <div><span>نسخة النموذج</span><strong>${esc(model.model_version || "لا يوجد Champion")}</strong></div>
       <div><span>آخر تدريب</span><strong>${dateTime(model.trained_at_ms)}</strong></div>
@@ -156,6 +156,8 @@ function algorithmRows(model) {
     ["العائلة", algorithm.family],
     ["المقدّر", algorithm.estimator],
     ["الأهداف / الفئات", algorithm.targets || algorithm.classes],
+    ["هدف الصعود الحاكم", algorithm.governed_upside_objective ?? algorithm.upper_barrier_return],
+    ["نسخة تعريف الهدف", algorithm.target_definition_version],
     ["خط المعالجة", algorithm.pipeline],
     ["Hyperparameters", hyper],
     ["منهج التحقق", validation.method],
@@ -216,7 +218,7 @@ function renderEvaluationB(model) {
     const counts = row.class_counts || {};
     const support = metrics.walk_forward_support_audit || {};
     const performance = metrics.walk_forward_performance_audit || {};
-    return `<tr><td>${horizonLabel(horizon)}</td><td class="${stateClass(row.status)}">${esc(row.status)}</td><td>${number(row.row_count)}</td><td>${number(row.train_rows)} / ${number(row.calibration_rows)} / ${number(row.test_rows)}</td><td>${number(counts.UP_10)} / ${number(counts.DOWN_10)} / ${number(counts.NO_EVENT)}</td><td>${pct(metrics.directional_high_confidence_empirical_precision)}</td><td>${number(metrics.directional_high_confidence_predictions)}</td><td>${number(performance.passing_fold_count ?? support.eligible_fold_count)} / ${number(performance.minimum_passing_folds ?? support.minimum_eligible_folds)}</td><td>${esc(row.reason)}</td></tr>`;
+    return `<tr><td>${horizonLabel(horizon)}</td><td class="${stateClass(row.status)}">${esc(row.status)}</td><td>${number(row.row_count)}</td><td>${number(row.train_rows)} / ${number(row.calibration_rows)} / ${number(row.test_rows)}</td><td>${number(counts.UP_02)} / ${number(counts.DOWN_02)} / ${number(counts.NO_EVENT)}</td><td>${pct(metrics.directional_high_confidence_empirical_precision)}</td><td>${number(metrics.directional_high_confidence_predictions)}</td><td>${number(performance.passing_fold_count ?? support.eligible_fold_count)} / ${number(performance.minimum_passing_folds ?? support.minimum_eligible_folds)}</td><td>${esc(row.reason)}</td></tr>`;
   }).join("") : '<tr><td colspan="9" class="empty">لا يوجد تقرير تدريب لـModel B بعد</td></tr>';
 }
 
@@ -244,12 +246,12 @@ function renderStatistics(payload) {
   $("statSkewness").textContent = number(distribution.skewness, 4);
   $("statKurtosis").textContent = number(distribution.excess_kurtosis, 3);
   $("statOutliers").textContent = number(distribution.robust_outliers?.absolute_robust_z_ge_6_count);
-  $("statUpPassage").innerHTML = detailRows(passageRows(discovery.barrier_time_statistics?.UP_10 || {}));
-  $("statDownPassage").innerHTML = detailRows(passageRows(discovery.barrier_time_statistics?.DOWN_10 || {}));
+  $("statUpPassage").innerHTML = detailRows(passageRows(discovery.barrier_time_statistics?.UP_02 || {}));
+  $("statDownPassage").innerHTML = detailRows(passageRows(discovery.barrier_time_statistics?.DOWN_02 || {}));
   const horizons = reportEntries(discovery.horizons || {});
   $("statHorizonBody").innerHTML = horizons.length ? horizons.map(([horizon, row]) => {
     const excursion = row.empirical_excursion || {};
-    return `<tr><td>${horizonLabel(horizon)}</td><td>${number(row.upper_10_reached_count)} (${pct(row.upper_10_reached_rate, 2)})</td><td>${number(row.lower_10_reached_count)} (${pct(row.lower_10_reached_rate, 2)})</td><td>${pct(row.any_10pct_touch_rate, 2)}</td><td>${number(row.up_first_count)}</td><td>${number(row.down_first_count)}</td><td>${number(row.upper_independent_clusters)} / ${number(row.lower_independent_clusters)}</td><td>${signedPct(excursion.max_return_q50)} / ${signedPct(excursion.min_return_q50)}</td><td>${number(row.sample_rows)}</td></tr>`;
+    return `<tr><td>${horizonLabel(horizon)}</td><td>${number(row.upper_02_reached_count)} (${pct(row.upper_02_reached_rate, 2)})</td><td>${number(row.lower_02_reached_count)} (${pct(row.lower_02_reached_rate, 2)})</td><td>${pct(row.any_10pct_touch_rate, 2)}</td><td>${number(row.up_first_count)}</td><td>${number(row.down_first_count)}</td><td>${number(row.upper_independent_clusters)} / ${number(row.lower_independent_clusters)}</td><td>${signedPct(excursion.max_return_q50)} / ${signedPct(excursion.min_return_q50)}</td><td>${number(row.sample_rows)}</td></tr>`;
   }).join("") : '<tr><td colspan="9" class="empty">تقرير الاستكشاف غير متاح</td></tr>';
   const integrity = stats.data_integrity || {};
   $("integrityAnalysis").innerHTML = detailRows([
@@ -324,11 +326,11 @@ function renderPrediction(payload) {
   const output = payload.output || {};
   if (payload.model_key === "adaptive_shock" && payload.status === "RESEARCH_RESULT") {
     $("predictionCards").innerHTML = [
-      ["صعود Q50", signedPct(output.max_return_q50), "positive"], ["سعر الصعود Q50", number(output.max_price_q50, 4), "positive"], ["هبوط Q50", signedPct(output.min_return_q50), "negative"], ["سعر الهبوط Q50", number(output.min_price_q50, 4), "negative"], ["نطاق الصعود Q05–Q95", `${signedPct(output.max_return_q05)} → ${signedPct(output.max_return_q95)}`, ""], ["نطاق الهبوط Q05–Q95", `${signedPct(output.min_return_q05)} → ${signedPct(output.min_return_q95)}`, ""],
+      ["هدف الصعود", "+2% فأكثر", "positive"], ["حكم الوسيط على الهدف", output.target_up_reached_by_median ? "مرجّح بلوغه" : "غير مرجّح بالوسيط", output.target_up_reached_by_median ? "positive" : ""], ["سعر هدف +2%", number(output.target_up_price, 4), "positive"], ["صعود Q50", signedPct(output.max_return_q50), "positive"], ["سعر الصعود Q50", number(output.max_price_q50, 4), "positive"], ["هبوط Q50", signedPct(output.min_return_q50), "negative"], ["سعر الهبوط Q50", number(output.min_price_q50, 4), "negative"], ["نطاق الصعود Q05–Q95", `${signedPct(output.max_return_q05)} → ${signedPct(output.max_return_q95)}`, ""], ["نطاق الهبوط Q05–Q95", `${signedPct(output.min_return_q05)} → ${signedPct(output.min_return_q95)}`, ""],
     ].map(([label, value, cls]) => `<div class="prediction-card"><span>${label}</span><strong class="${cls}">${value}</strong></div>`).join("");
   } else if (payload.model_key === "first_touch" && payload.status === "RESEARCH_RESULT") {
     $("predictionCards").innerHTML = [
-      ["احتمال +10% أولًا", pct(output.p_up_10, 2), "positive"], ["احتمال −10% أولًا", pct(output.p_down_10, 2), "negative"], ["احتمال لا حدث", pct(output.p_no_event, 2), ""], ["الفئة الأعلى", output.highest_probability_class, ""], ["أعلى احتمال", pct(output.highest_probability, 2), ""], ["الحكم", payload.decision, "wait"],
+      ["احتمال +2% أولًا", pct(output.p_up_02, 2), "positive"], ["احتمال −2% أولًا", pct(output.p_down_02, 2), "negative"], ["احتمال لا حدث", pct(output.p_no_event, 2), ""], ["الفئة الأعلى", output.highest_probability_class, ""], ["أعلى احتمال", pct(output.highest_probability, 2), ""], ["الحكم", payload.decision, "wait"],
     ].map(([label, value, cls]) => `<div class="prediction-card"><span>${label}</span><strong class="${cls}">${esc(value)}</strong></div>`).join("");
   } else {
     $("predictionCards").innerHTML = `<div class="prediction-card"><span>الحالة</span><strong class="wait">${esc(payload.status || "WAIT")}</strong></div><div class="prediction-card"><span>السبب</span><strong>${esc(payload.reason || "لا توجد نتيجة")}</strong></div>`;
@@ -526,7 +528,7 @@ function horizonReportLines(modelKey, model) {
       lines.push(
         `  - ${horizonLabel(horizon)} | ${row.status || "WAIT"} | rows=${plainNumber(row.row_count)}`
         + ` | train/calibration/test=${plainNumber(row.train_rows)}/${plainNumber(row.calibration_rows)}/${plainNumber(row.test_rows)}`
-        + ` | UP/DOWN/NO_EVENT=${plainNumber(counts.UP_10)}/${plainNumber(counts.DOWN_10)}/${plainNumber(counts.NO_EVENT)}`
+        + ` | UP/DOWN/NO_EVENT=${plainNumber(counts.UP_02)}/${plainNumber(counts.DOWN_02)}/${plainNumber(counts.NO_EVENT)}`
         + ` | directional_precision=${plainPct(metrics.directional_high_confidence_empirical_precision)}`
         + ` | high_confidence=${plainNumber(metrics.directional_high_confidence_predictions)}`
         + ` | passing_folds=${plainNumber(performance.passing_fold_count ?? support.eligible_fold_count)}/${plainNumber(performance.minimum_passing_folds ?? support.minimum_eligible_folds)}`
@@ -616,6 +618,7 @@ function buildRuntimeReport(payload, inputs, probes, interfaceAudit, generatedAt
     "",
     "[2] البيانات ودورة التشغيل",
     `- الرمز: ${platform.symbol || "—"}`,
+    `- تعريف الهدف: ${platform.target_definition_version || "—"} | صعود=${plainPct(platform.target_up_return)} | هبوط مقارن=${plainPct(platform.target_down_return)}`,
     `- الآفاق المضبوطة بالدقائق: ${configured.join(", ")}`,
     `- بداية البيانات: ${plainDateTime(platform.data_start_ms)}`,
     `- نهاية البيانات: ${plainDateTime(platform.data_end_ms)}`,
@@ -628,6 +631,7 @@ function buildRuntimeReport(payload, inputs, probes, interfaceAudit, generatedAt
     "",
     "[3] Model A — Adaptive Shock Magnitude",
     `- الحالة: ${modelA.state || "WAIT"}`,
+    `- هدف الصعود الحاكم: +2% فأكثر`,
     `- النسخة: ${modelA.model_version || "لا يوجد Champion"}`,
     `- آخر تدريب: ${plainDateTime(modelA.trained_at_ms)}`,
     `- صفوف التدريب النهائية: ${plainNumber(modelA.training_final_rows)}`,
@@ -636,7 +640,7 @@ function buildRuntimeReport(payload, inputs, probes, interfaceAudit, generatedAt
     `- عدد الخصائص: ${plainNumber(modelA.feature_names?.length)}`,
     ...horizonReportLines("adaptive_shock", modelA),
     "",
-    "[4] Model B — ±10% First Touch",
+    "[4] Model B — ±2% First Touch",
     `- الحالة: ${modelB.state || "WAIT"}`,
     `- النسخة: ${modelB.model_version || "لا يوجد Champion"}`,
     `- آخر تدريب: ${plainDateTime(modelB.trained_at_ms)}`,

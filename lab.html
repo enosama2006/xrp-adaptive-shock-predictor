@@ -13,7 +13,7 @@
     <header class="lab-hero">
       <div>
         <div class="lab-breadcrumb"><a href="/">المنصة الرئيسية</a><span>←</span><strong>مختبر النماذج</strong></div>
-        <p class="eyebrow">MODEL RESEARCH LAB · XASP 1.7.0</p>
+        <p class="eyebrow">MODEL RESEARCH LAB · XASP 1.8.0</p>
         <h1>خلفية النموذج، أدلة تدريبه، ومخرجاته أمامك</h1>
         <p>صفحة شفافية وتجربة بحثية تعرض الخوارزميات الفعلية، حالة كل أفق، مقاييس الاختبار الزمني، التحليل الإحصائي، ومدخلات النموذج. تجارب هذه الصفحة لا تُحفظ كتوقعات حية ولا تغيّر النموذج المعتمد.</p>
       </div>
@@ -88,12 +88,12 @@
         <article><span>قيم Robust Z≥6</span><strong id="statOutliers">—</strong><small>لا تُحذف من التحليل</small></article>
       </div>
       <div class="lab-two-columns">
-        <article class="lab-panel"><h2>إحصاءات الوصول إلى +10%</h2><div id="statUpPassage" class="detail-list"></div></article>
-        <article class="lab-panel"><h2>إحصاءات الوصول إلى −10%</h2><div id="statDownPassage" class="detail-list"></div></article>
+        <article class="lab-panel"><h2>إحصاءات الوصول إلى +2%</h2><div id="statUpPassage" class="detail-list"></div></article>
+        <article class="lab-panel"><h2>إحصاءات الوصول إلى −2%</h2><div id="statDownPassage" class="detail-list"></div></article>
       </div>
       <article class="lab-panel">
         <h2>الوصول والنطاق التاريخي حسب النافذة</h2>
-        <div class="table-wrap"><table class="lab-table"><thead><tr><th>النافذة</th><th>+10%</th><th>−10%</th><th>أي لمس</th><th>أول صعود</th><th>أول هبوط</th><th>صدمات مستقلة +/−</th><th>النطاق الوسيط +/−</th><th>العينة</th></tr></thead><tbody id="statHorizonBody"></tbody></table></div>
+        <div class="table-wrap"><table class="lab-table"><thead><tr><th>النافذة</th><th>+2%</th><th>−2%</th><th>أي لمس</th><th>أول صعود</th><th>أول هبوط</th><th>صدمات مستقلة +/−</th><th>النطاق الوسيط +/−</th><th>العينة</th></tr></thead><tbody id="statHorizonBody"></tbody></table></div>
       </article>
       <div class="lab-two-columns">
         <article class="lab-panel"><h2>سلامة البيانات</h2><div id="integrityAnalysis" class="detail-list"></div></article>
@@ -105,7 +105,7 @@
       <div class="experiment-layout">
         <article class="lab-panel experiment-controls">
           <div class="panel-title-row"><div><span class="section-kicker">WHAT-IF INFERENCE</span><h2>إعداد تجربة النموذج</h2></div><span id="experimentModelState" class="state-pill">WAIT</span></div>
-          <label>النموذج<select id="experimentModel"><option value="adaptive_shock">Model A — نطاق الحركة</option><option value="first_touch">Model B — الوصول الأول ±10%</option></select></label>
+          <label>النموذج<select id="experimentModel"><option value="adaptive_shock">Model A — نطاق الحركة</option><option value="first_touch">Model B — الوصول الأول ±2%</option></select></label>
           <label>الأفق<select id="experimentHorizon"></select></label>
           <label>السعر المرجعي<input id="experimentPrice" type="number" min="0" step="any" placeholder="سعر XRP المرجعي" /></label>
           <div class="button-row">

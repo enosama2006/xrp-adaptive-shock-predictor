@@ -14,6 +14,7 @@ from .partitioned_horizon_store import (
     HorizonStoreStats,
     PartitionedHorizonStore,
 )
+from .target_definition import TARGET_DOWN_RETURN, TARGET_UP_RETURN
 
 ENVELOPE_TARGET_COLUMNS: tuple[str, ...] = (
     "anchor_timestamp_ms",
@@ -27,11 +28,7 @@ ENVELOPE_TARGET_COLUMNS: tuple[str, ...] = (
     "minutes_to_max",
     "minutes_to_min",
     "hit_up_02",
-    "hit_up_05",
-    "hit_up_10",
     "hit_down_02",
-    "hit_down_05",
-    "hit_down_10",
     "status",
 )
 
@@ -154,12 +151,8 @@ def _targets_from_anchor_partition(anchors: pd.DataFrame) -> pd.DataFrame:
             "future_min_return": valid["min_return"].astype(float),
             "minutes_to_max": pd.Series(pd.NA, index=valid.index, dtype="Int64"),
             "minutes_to_min": pd.Series(pd.NA, index=valid.index, dtype="Int64"),
-            "hit_up_02": max_price >= anchor_price * 1.02,
-            "hit_up_05": max_price >= anchor_price * 1.05,
-            "hit_up_10": max_price >= anchor_price * 1.10,
-            "hit_down_02": min_price <= anchor_price * 0.98,
-            "hit_down_05": min_price <= anchor_price * 0.95,
-            "hit_down_10": min_price <= anchor_price * 0.90,
+            "hit_up_02": max_price >= anchor_price * (1.0 + TARGET_UP_RETURN),
+            "hit_down_02": min_price <= anchor_price * (1.0 + TARGET_DOWN_RETURN),
             "status": "FINAL",
         }
     )

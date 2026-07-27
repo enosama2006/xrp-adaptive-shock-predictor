@@ -9,6 +9,7 @@ import pandas as pd
 from numpy.lib.stride_tricks import sliding_window_view
 
 from .future_envelope import HORIZONS
+from .target_definition import TARGET_DOWN_RETURN, TARGET_UP_RETURN
 
 MINUTE_MS = 60_000
 DEFAULT_CHUNK_ROWS = 100_000
@@ -98,12 +99,8 @@ def build_future_envelope_targets_fast(
                 "future_min_return": min_price / anchor_price - 1.0,
                 "minutes_to_max": max_offsets.astype(np.int16),
                 "minutes_to_min": min_offsets.astype(np.int16),
-                "hit_up_02": max_price >= anchor_price * 1.02,
-                "hit_up_05": max_price >= anchor_price * 1.05,
-                "hit_up_10": max_price >= anchor_price * 1.10,
-                "hit_down_02": min_price <= anchor_price * 0.98,
-                "hit_down_05": min_price <= anchor_price * 0.95,
-                "hit_down_10": min_price <= anchor_price * 0.90,
+                "hit_up_02": max_price >= anchor_price * (1.0 + TARGET_UP_RETURN),
+                "hit_down_02": min_price <= anchor_price * (1.0 + TARGET_DOWN_RETURN),
                 "status": np.full(len(chunk), "FINAL", dtype=object),
             }
             output.append(pd.DataFrame(rows))

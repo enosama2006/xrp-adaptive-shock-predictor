@@ -137,6 +137,7 @@ function shockWaitCard(horizon, reason = "لم يجتز الأفق بوابة ا
     <article class="horizon-model-card wait-card">
       <header><span>${horizonLabel(horizon)}</span><strong>WAIT — GATE</strong></header>
       <dl>
+        <div><dt>هدف الصعود</dt><dd class="positive">+2% فأكثر</dd></div>
         <div><dt>أعلى حركة متوقعة</dt><dd>—</dd></div>
         <div><dt>أدنى حركة متوقعة</dt><dd>—</dd></div>
         <div><dt>الحالة</dt><dd>${reason}</dd></div>
@@ -162,10 +163,10 @@ function directionalSupport(report, horizon) {
   const aggregate = walkForward.aggregate_event_support || {};
   const clusters = walkForward.aggregate_independent_event_clusters || {};
   return {
-    up: Number(explicit.UP_10 ?? aggregate.UP_10 ?? perClass.UP_10?.support ?? 0),
-    down: Number(explicit.DOWN_10 ?? aggregate.DOWN_10 ?? perClass.DOWN_10?.support ?? 0),
-    upClusters: Number(clusters.UP_10 || 0),
-    downClusters: Number(clusters.DOWN_10 || 0),
+    up: Number(explicit.UP_02 ?? aggregate.UP_02 ?? perClass.UP_02?.support ?? 0),
+    down: Number(explicit.DOWN_02 ?? aggregate.DOWN_02 ?? perClass.DOWN_02?.support ?? 0),
+    upClusters: Number(clusters.UP_02 || 0),
+    downClusters: Number(clusters.DOWN_02 || 0),
     eligibleFolds: Number(walkForward.eligible_fold_count || 0),
     foldCount: Number(walkForward.fold_count || 0),
     reason: current.reason || report?._meta?.reason || "no_first_touch_training_report",
@@ -180,8 +181,8 @@ function touchWaitCard(horizon, report = {}, platformReason = "") {
     <article class="horizon-model-card wait-card">
       <header><span>${horizonLabel(horizon)}</span><strong>WAIT — INDEPENDENT GATE</strong></header>
       <dl>
-        <div><dt>صفوف +10% / −10%</dt><dd>${count(evidence.up)} / ${count(evidence.down)}</dd></div>
-        <div><dt>صدمات مستقلة +10% / −10%</dt><dd>${count(evidence.upClusters)} / ${count(evidence.downClusters)}</dd></div>
+        <div><dt>صفوف +2% / −2%</dt><dd>${count(evidence.up)} / ${count(evidence.down)}</dd></div>
+        <div><dt>صدمات مستقلة +2% / −2%</dt><dd>${count(evidence.upClusters)} / ${count(evidence.downClusters)}</dd></div>
         <div><dt>الفترات المؤهلة</dt><dd>${count(evidence.eligibleFolds)} من ${count(evidence.foldCount)}</dd></div>
         <div><dt>سبب الانتظار</dt><dd>${reasonLabel(reason)}</dd></div>
       </dl>
@@ -232,7 +233,7 @@ function summarizeTouchEvidence(report) {
 
 function renderCatalog(catalog, touchReport = {}, production = {}) {
   const shock = catalog.adaptive_shock;
-  const touch = catalog.first_touch_10;
+  const touch = catalog.first_touch_02;
   const envelopeLive = production.future_envelope || {};
   const reportMeta = touchReport._meta || {};
 
@@ -247,6 +248,7 @@ function renderCatalog(catalog, touchReport = {}, production = {}) {
 
   $("shockMethod").innerHTML = `
     <div class="factor"><span>النوع</span><strong>${shock.technical_name}</strong></div>
+    <div class="factor"><span>هدف الصعود الحاكم</span><strong>+2% فأكثر</strong></div>
     <div class="factor"><span>الغرض</span><strong>${shock.purpose}</strong></div>
     <div class="factor"><span>الآفاق المعتمدة</span><strong>${(shock.available_horizons || []).join(", ") || "لا يوجد"}</strong></div>`;
   $("shockGate").innerHTML = `
@@ -270,6 +272,8 @@ function shockCard(row) {
     <article class="horizon-model-card shock-card">
       <header><span>${horizonLabel(Number(row.horizon_minutes))}</span><strong>${row.empirical_gate || "RESEARCH"}</strong></header>
       <dl>
+        <div><dt>هدف +2% وفق الوسيط</dt><dd class="${row.target_up_reached_by_median ? "positive" : ""}">${row.target_up_reached_by_median ? "مرجّح بلوغه" : "غير مرجّح بالوسيط"}</dd></div>
+        <div><dt>سعر هدف +2%</dt><dd>${price(Number(row.target_up_price))}</dd></div>
         <div><dt>أعلى حركة وسطية</dt><dd class="positive">${pct(Number(row.max_return_q50))}</dd></div>
         <div><dt>أدنى حركة وسطية</dt><dd class="negative">${pct(Number(row.min_return_q50))}</dd></div>
         <div><dt>أعلى سعر وسطي</dt><dd>${price(Number(row.max_price_q50))}</dd></div>
@@ -293,15 +297,15 @@ function renderShock(rows) {
 }
 
 function touchCard(row) {
-  const values = [Number(row.p_up_10), Number(row.p_down_10), Number(row.p_no_event)];
-  const labels = ["UP_10", "DOWN_10", "NO_EVENT"];
+  const values = [Number(row.p_up_02), Number(row.p_down_02), Number(row.p_no_event)];
+  const labels = ["UP_02", "DOWN_02", "NO_EVENT"];
   const winner = labels[values.indexOf(Math.max(...values))];
   return `
     <article class="horizon-model-card touch-card">
       <header><span>${horizonLabel(Number(row.horizon_minutes))}</span><strong>${winner}</strong></header>
       <dl>
-        <div><dt>+10% أولًا</dt><dd class="positive">${pct(values[0])}</dd></div>
-        <div><dt>−10% أولًا</dt><dd class="negative">${pct(values[1])}</dd></div>
+        <div><dt>+2% أولًا</dt><dd class="positive">${pct(values[0])}</dd></div>
+        <div><dt>−2% أولًا</dt><dd class="negative">${pct(values[1])}</dd></div>
         <div><dt>لا حدث</dt><dd>${pct(values[2])}</dd></div>
         <div><dt>قرار المنصة</dt><dd>${row.decision || "WAIT"}</dd></div>
       </dl>
@@ -329,7 +333,7 @@ function renderLedger(rows, touchAvailable) {
     return;
   }
   body.innerHTML = rows.slice(0, 100).map((row) => `
-    <tr><td>${time(row.created_at_ms)}</td><td>${horizonLabel(Number(row.horizon_minutes))}</td><td>${price(Number(row.anchor_price))}</td><td>${pct(Number(row.p_up_10))}</td><td>${pct(Number(row.p_down_10))}</td><td>${pct(Number(row.p_no_event))}</td><td>${row.status}</td><td>${row.actual_label || "معلّق"}</td></tr>`).join("");
+    <tr><td>${time(row.created_at_ms)}</td><td>${horizonLabel(Number(row.horizon_minutes))}</td><td>${price(Number(row.anchor_price))}</td><td>${pct(Number(row.p_up_02))}</td><td>${pct(Number(row.p_down_02))}</td><td>${pct(Number(row.p_no_event))}</td><td>${row.status}</td><td>${row.actual_label || "معلّق"}</td></tr>`).join("");
 }
 
 async function refresh() {
@@ -351,7 +355,7 @@ async function refresh() {
     renderCatalog(catalog, touchReport, production);
     renderShock(shock);
     renderTouch(touch, touchReport, status.reason);
-    renderLedger(ledger, Boolean(catalog.first_touch_10.available));
+    renderLedger(ledger, Boolean(catalog.first_touch_02.available));
   } catch (error) {
     setConnection("error", "الخادم غير مشغّل أو الدورة الأولى فشلت");
     $("lastTick").textContent = "راجع نافذة التشغيل لمعرفة سبب WAIT";

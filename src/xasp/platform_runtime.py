@@ -37,9 +37,13 @@ from .pipeline import (
     PipelineProgress,
 )
 from .prediction_ledger import PredictionLedger, PredictionRecord
+from .target_definition import (
+    TARGET_DEFINITION_VERSION,
+    ensure_current_target_definition,
+)
 
 HORIZONS = (15, 30, 45, 60)
-LABELS = ("UP_10", "DOWN_10", "NO_EVENT")
+LABELS = ("UP_02", "DOWN_02", "NO_EVENT")
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,6 +105,11 @@ class RealDataPlatform:
     def __init__(self, paths: RuntimePaths, config: RuntimeConfig) -> None:
         self.paths = paths
         self.config = config
+        self.target_migration = ensure_current_target_definition(
+            data_dir=paths.anchors.parent,
+            models_dir=paths.models.parent,
+            reports_dir=paths.reports.parent,
+        )
         self.pipeline = IncrementalResearchPipeline(
             PipelinePaths(paths.prices, paths.anchors, paths.state),
             PipelineConfig(
@@ -119,6 +128,8 @@ class RealDataPlatform:
             if (
                 isinstance(loaded, dict)
                 and loaded.get("gate_methodology_version") == FIRST_TOUCH_GATE_VERSION
+                and loaded.get("target_definition_version")
+                == TARGET_DEFINITION_VERSION
             ):
                 self._bundle = loaded
                 self._status.model_available = True
@@ -382,13 +393,14 @@ class RealDataPlatform:
             self._set_lifecycle("MODEL_B_WAIT", progress=1.0, message=message)
             return False
 
-        version = f"real-logistic-walk-forward-{int(time.time())}"
+        version = f"real-logistic-2pct-walk-forward-{int(time.time())}"
         bundle = {
             "model_version": version,
             "trained_at_ms": int(time.time() * 1000),
             "feature_names": feature_names,
             "feature_schema_version": FEATURE_SCHEMA_VERSION,
             "gate_methodology_version": FIRST_TOUCH_GATE_VERSION,
+            "target_definition_version": TARGET_DEFINITION_VERSION,
             "models": models,
             "reports": reports,
             "training_final_rows": final_count,
@@ -455,12 +467,12 @@ class RealDataPlatform:
                 anchor_price=anchor_price,
                 horizon_minutes=horizon,
                 model_version=str(self._bundle["model_version"]),
-                dataset_id="real-incremental-partitioned-v1",
+                dataset_id=f"real-incremental-partitioned-{TARGET_DEFINITION_VERSION}",
                 feature_schema_version=str(
                     self._bundle.get("feature_schema_version", FEATURE_SCHEMA_VERSION)
                 ),
-                p_up_10=mapped["UP_10"],
-                p_down_10=mapped["DOWN_10"],
+                p_up_02=mapped["UP_02"],
+                p_down_02=mapped["DOWN_02"],
                 p_no_event=mapped["NO_EVENT"],
                 decision="WAIT",
                 decision_reason="research_model_not_promoted_for_trading",

@@ -35,8 +35,8 @@ LEDGER_COLUMNS = [
     "model_version",
     "dataset_id",
     "feature_schema_version",
-    "p_up_10",
-    "p_down_10",
+    "p_up_02",
+    "p_down_02",
     "p_no_event",
     "decision",
     "decision_reason",
@@ -58,8 +58,8 @@ class PredictionRecord:
     model_version: str
     dataset_id: str
     feature_schema_version: str
-    p_up_10: float
-    p_down_10: float
+    p_up_02: float
+    p_down_02: float
     p_no_event: float
     decision: str = "WAIT"
     decision_reason: str = "research_only"
@@ -69,7 +69,7 @@ class PredictionRecord:
             raise ValueError("timestamps must be non-negative")
         if self.anchor_price <= 0 or self.horizon_minutes <= 0:
             raise ValueError("anchor_price and horizon_minutes must be positive")
-        probabilities = (self.p_up_10, self.p_down_10, self.p_no_event)
+        probabilities = (self.p_up_02, self.p_down_02, self.p_no_event)
         if any(value < 0 or value > 1 for value in probabilities):
             raise ValueError("probabilities must be in [0, 1]")
         if abs(sum(probabilities) - 1.0) > 1e-6:

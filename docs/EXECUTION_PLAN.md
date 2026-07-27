@@ -124,7 +124,7 @@ Status: `PARTIALLY IMPLEMENTED`.
 
 ### Objective
 
-Make ±10% first-touch targets, training, calibration, prediction, and maturation methodologically identical.
+Make ±2% first-touch targets, training, calibration, prediction, and maturation methodologically identical.
 
 ### Deliverables
 

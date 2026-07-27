@@ -20,6 +20,11 @@ from .fast_future_envelope import build_future_envelope_targets_fast
 from .features import join_anchors_with_features
 from .future_envelope import EnvelopeConfig, predict_envelope, train_future_envelope
 from .horizons import RESEARCH_HORIZON_SET_VERSION, RESEARCH_HORIZONS_MINUTES
+from .target_definition import (
+    TARGET_DEFINITION_VERSION,
+    TARGET_DOWN_RETURN,
+    TARGET_UP_RETURN,
+)
 
 HORIZONS = RESEARCH_HORIZONS_MINUTES
 TARGET_BUILD_CHUNK_ROWS = 10_000
@@ -37,6 +42,8 @@ def _valid_bundle(bundle: Any) -> bool:
     if not isinstance(bundle, dict):
         return False
     if bundle.get("horizon_set_version") != RESEARCH_HORIZON_SET_VERSION:
+        return False
+    if bundle.get("target_definition_version") != TARGET_DEFINITION_VERSION:
         return False
     models = {int(value) for value in bundle.get("models", {})}
     return bool(models) and models.issubset(set(HORIZONS))
@@ -138,7 +145,9 @@ class EnvelopeEngineV2:
 
         target_stats = self.target_store.stats()
         bundle: dict[str, Any] = {
-            "model_version": f"real-envelope-independent-horizons-{int(time.time())}",
+            "model_version": (
+                f"real-envelope-2pct-context-independent-horizons-{int(time.time())}"
+            ),
             "trained_at_ms": int(time.time() * 1000),
             "feature_names": feature_names,
             "models": models,
@@ -150,6 +159,9 @@ class EnvelopeEngineV2:
             "rejected_horizons_this_run": rejected,
             "source": "observed_binance_ohlc_only",
             "required_empirical_interval_coverage": 0.85,
+            "target_definition_version": TARGET_DEFINITION_VERSION,
+            "target_up_return": TARGET_UP_RETURN,
+            "target_down_return": TARGET_DOWN_RETURN,
             "training_final_rows": int(training_final_rows),
             "target_rows": target_stats.total_rows,
             "target_partition_count": target_stats.partition_count,
@@ -208,6 +220,10 @@ class EnvelopeEngineV2:
                     "min_return_q95": min_high,
                     "max_price_q50": anchor_price * (1.0 + max_mid),
                     "min_price_q50": anchor_price * (1.0 + min_mid),
+                    "target_up_return": TARGET_UP_RETURN,
+                    "target_up_price": anchor_price * (1.0 + TARGET_UP_RETURN),
+                    "target_up_reached_by_median": max_mid >= TARGET_UP_RETURN,
+                    "target_up_reached_by_upper_bound": max_high >= TARGET_UP_RETURN,
                     "empirical_gate": "PASSED_85_COVERAGE",
                     "decision": "WAIT",
                     "decision_reason": "research_model_not_trading_promoted",

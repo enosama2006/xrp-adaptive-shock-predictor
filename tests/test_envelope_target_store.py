@@ -26,15 +26,15 @@ def _anchor_frame() -> pd.DataFrame:
                 "anchor_price": 1.0,
                 "horizon_minutes": 60,
                 "horizon_end_ms": timestamp + 60 * 60_000,
-                "upper_barrier_price": 1.1,
-                "lower_barrier_price": 0.9,
+                "upper_barrier_price": 1.02,
+                "lower_barrier_price": 0.98,
                 "max_price": 1.12,
                 "min_price": 0.97,
                 "max_return": 0.12,
                 "min_return": -0.03,
-                "label": "UP_10",
+                "label": "UP_02",
                 "touch_timestamp_ms": timestamp + 30 * 60_000,
-                "touch_price": 1.1,
+                "touch_price": 1.02,
                 "status": "FINAL",
                 "reason": "upper_barrier_touched_first_by_candle_high",
             }
@@ -56,8 +56,8 @@ def test_sync_materializes_partitioned_targets(tmp_path: Path) -> None:
     target = target_store.load_partition(key).iloc[0]
     assert float(target["future_max_return"]) == 0.12
     assert float(target["future_min_return"]) == -0.03
-    assert bool(target["hit_up_10"]) is True
-    assert bool(target["hit_down_05"]) is False
+    assert bool(target["hit_up_02"]) is True
+    assert bool(target["hit_down_02"]) is True
 
 
 def test_sync_includes_complete_ambiguous_anchor_for_excursion_model(tmp_path: Path) -> None:

@@ -5,7 +5,7 @@
 - Restart-safe raw-data watermarks and atomic state persistence.
 - Historical and live market-data ingestion scaffolding.
 - Incremental minute anchor dataset with 15/30/45/60 minute horizons.
-- Immutable first-touch outcomes: UP_10, DOWN_10, NO_EVENT, AMBIGUOUS, INCOMPLETE.
+- Immutable first-touch outcomes: UP_02, DOWN_02, NO_EVENT, AMBIGUOUS, INCOMPLETE.
 - Pending-to-final label maturation without full historical rebuild.
 - Causal minute-price feature engine with explicit availability timestamps.
 - Feature-to-anchor leakage guard.

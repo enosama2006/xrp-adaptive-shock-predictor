@@ -23,6 +23,7 @@ from .partitioned_horizon_store import (
     HorizonStoreStats,
     PartitionedHorizonStore,
 )
+from .target_definition import TARGET_DOWN_RETURN, TARGET_UP_RETURN
 
 ANCHOR_COLUMNS = [
     "anchor_timestamp_ms",
@@ -46,8 +47,8 @@ ANCHOR_COLUMNS = [
 @dataclass(frozen=True, slots=True)
 class AnchorDatasetConfig:
     horizons_minutes: tuple[int, ...] = RESEARCH_HORIZONS_MINUTES
-    upper_return: float = 0.10
-    lower_return: float = -0.10
+    upper_return: float = TARGET_UP_RETURN
+    lower_return: float = TARGET_DOWN_RETURN
     cadence_ms: int = 60_000
 
     def __post_init__(self) -> None:

@@ -162,8 +162,8 @@ def _initial_dataset(
 
                 labels[chunk_indices[no_event]] = BarrierLabel.NO_EVENT.value
                 labels[chunk_indices[ambiguous]] = BarrierLabel.AMBIGUOUS.value
-                labels[chunk_indices[up_first]] = BarrierLabel.UP_10.value
-                labels[chunk_indices[down_first]] = BarrierLabel.DOWN_10.value
+                labels[chunk_indices[up_first]] = BarrierLabel.UP_02.value
+                labels[chunk_indices[down_first]] = BarrierLabel.DOWN_02.value
                 status[chunk_indices[no_event | up_first | down_first]] = "FINAL"
                 status[chunk_indices[ambiguous]] = "EXCLUDED"
                 reason[chunk_indices[no_event]] = "no_barrier_touched_within_horizon"

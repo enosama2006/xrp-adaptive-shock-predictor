@@ -35,11 +35,11 @@ def _first_touch_metrics(ledger: pd.DataFrame) -> dict[str, Any]:
         return {"status": "WAIT", "reason": "no_matured_predictions", "evaluated_rows": 0}
 
     class_columns = {
-        "UP_10": "p_up_10",
-        "DOWN_10": "p_down_10",
+        "UP_02": "p_up_02",
+        "DOWN_02": "p_down_02",
         "NO_EVENT": "p_no_event",
     }
-    event_labels = {"UP_10", "DOWN_10"}
+    event_labels = {"UP_02", "DOWN_02"}
     evaluated["predicted_label"] = evaluated[[*class_columns.values()]].idxmax(axis=1).map(
         {column: label for label, column in class_columns.items()}
     )

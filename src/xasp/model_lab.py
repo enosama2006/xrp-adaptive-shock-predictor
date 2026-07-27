@@ -23,6 +23,12 @@ from .first_touch_v4 import FIRST_TOUCH_GATE_VERSION
 from .future_envelope import predict_envelope
 from .horizons import RESEARCH_HORIZON_SET_VERSION, RESEARCH_HORIZONS_MINUTES
 from .platform_runtime_v2 import RealDataPlatformV2
+from .target_definition import (
+    TARGET_DEFINITION_VERSION,
+    TARGET_DOWN_RETURN,
+    TARGET_PERCENT,
+    TARGET_UP_RETURN,
+)
 
 MODEL_A_KEY = "adaptive_shock"
 MODEL_B_KEY = "first_touch"
@@ -77,6 +83,8 @@ def _model_a_algorithm() -> dict[str, Any]:
         "family": "Gradient-boosted decision trees for quantile regression",
         "estimator": "sklearn.ensemble.HistGradientBoostingRegressor",
         "targets": ["future_max_return", "future_min_return"],
+        "governed_upside_objective": TARGET_UP_RETURN,
+        "target_definition_version": TARGET_DEFINITION_VERSION,
         "quantiles": [0.05, 0.50, 0.95],
         "pipeline": [
             "Median imputation with missing-value indicators",
@@ -107,7 +115,10 @@ def _model_b_algorithm() -> dict[str, Any]:
     return {
         "family": "Calibrated balanced multinomial logistic classification",
         "estimator": "sklearn.linear_model.LogisticRegression",
-        "classes": ["UP_10", "DOWN_10", "NO_EVENT"],
+        "classes": ["UP_02", "DOWN_02", "NO_EVENT"],
+        "target_definition_version": TARGET_DEFINITION_VERSION,
+        "upper_barrier_return": TARGET_UP_RETURN,
+        "lower_barrier_return": TARGET_DOWN_RETURN,
         "pipeline": [
             "Median imputation with missing-value indicators",
             "StandardScaler",
@@ -122,7 +133,7 @@ def _model_b_algorithm() -> dict[str, Any]:
         },
         "validation": {
             "method": "Fresh-fit purged walk-forward folds plus final untouched temporal test",
-            "event_support": "Both UP_10 and DOWN_10 need independent event clusters",
+            "event_support": "Both UP_02 and DOWN_02 need independent event clusters",
             "confidence_threshold": 0.85,
             "required_directional_precision": 0.85,
             "no_event_rule": "NO_EVENT accuracy cannot pass the directional gate",
@@ -181,7 +192,7 @@ class ModelLabService:
             "display_name": (
                 "Model A — Adaptive Shock Magnitude"
                 if model_key == MODEL_A_KEY
-                else "Model B — ±10% First Touch"
+                else f"Model B — ±{TARGET_PERCENT}% First Touch"
             ),
             "state": "TRAINING" if is_training else "RESEARCH_READY" if available else "WAIT",
             "runtime_state": self.platform.status.state,
@@ -198,6 +209,9 @@ class ModelLabService:
                 if bundle is None
                 else bundle.get("feature_schema_version", FEATURE_SCHEMA_VERSION)
             ),
+            "target_definition_version": TARGET_DEFINITION_VERSION,
+            "target_up_return": TARGET_UP_RETURN,
+            "target_down_return": TARGET_DOWN_RETURN,
             "feature_names": _feature_names(bundle),
             "algorithm": _model_a_algorithm() if model_key == MODEL_A_KEY else _model_b_algorithm(),
             "training_report": self._model_report(model_key),
@@ -214,6 +228,9 @@ class ModelLabService:
                 "symbol": self.platform.config.symbol,
                 "configured_horizons_minutes": list(RESEARCH_HORIZONS_MINUTES),
                 "horizon_set_version": RESEARCH_HORIZON_SET_VERSION,
+                "target_definition_version": TARGET_DEFINITION_VERSION,
+                "target_up_return": TARGET_UP_RETURN,
+                "target_down_return": TARGET_DOWN_RETURN,
                 "price_store": asdict(price_stats),
                 "ready_for_trading": False,
             },
@@ -441,11 +458,15 @@ class ModelLabService:
                 "min_return_q95": minimum[2],
                 "max_price_q50": effective_anchor * (1.0 + maximum[1]),
                 "min_price_q50": effective_anchor * (1.0 + minimum[1]),
+                "target_up_return": TARGET_UP_RETURN,
+                "target_up_price": effective_anchor * (1.0 + TARGET_UP_RETURN),
+                "target_up_reached_by_median": maximum[1] >= TARGET_UP_RETURN,
+                "target_up_reached_by_upper_bound": maximum[2] >= TARGET_UP_RETURN,
             }
         else:
             probabilities = np.asarray(model.predict_proba(row)[0], dtype=float)
             classes = [str(value) for value in model.classes_]
-            mapped = {label: 0.0 for label in ("UP_10", "DOWN_10", "NO_EVENT")}
+            mapped = {label: 0.0 for label in ("UP_02", "DOWN_02", "NO_EVENT")}
             for index, label in enumerate(classes):
                 if label in mapped:
                     mapped[label] = float(probabilities[index])
@@ -454,8 +475,8 @@ class ModelLabService:
                 return {"status": "WAIT", "reason": "model_returned_no_probability_mass"}
             mapped = {key: value / total for key, value in mapped.items()}
             output = {
-                "p_up_10": mapped["UP_10"],
-                "p_down_10": mapped["DOWN_10"],
+                "p_up_02": mapped["UP_02"],
+                "p_down_02": mapped["DOWN_02"],
                 "p_no_event": mapped["NO_EVENT"],
                 "highest_probability_class": max(mapped, key=mapped.__getitem__),
                 "highest_probability": max(mapped.values()),

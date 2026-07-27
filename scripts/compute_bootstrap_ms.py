@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import argparse
-from datetime import UTC, datetime, timedelta
 import os
+from datetime import UTC, datetime, timedelta
 
 DEFAULT_HISTORY_DAYS = 365
 MAX_HISTORY_DAYS = 3_650

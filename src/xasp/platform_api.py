@@ -26,6 +26,12 @@ from .horizons import (
 )
 from .platform_runtime_v2 import RealDataPlatformV2, RuntimeConfig, RuntimePaths
 from .production_report_v2 import ProductionReportPaths
+from .target_definition import (
+    TARGET_DEFINITION_VERSION,
+    TARGET_DOWN_RETURN,
+    TARGET_PERCENT,
+    TARGET_UP_RETURN,
+)
 
 HORIZON_KEYS = RESEARCH_HORIZON_KEYS
 
@@ -94,7 +100,7 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
 
     app = FastAPI(
         title="XASP Real Data Platform",
-        version="1.4.2",
+        version="1.8.0",
         lifespan=lifespan,
     )
     app.include_router(build_governance_router(platform))
@@ -108,9 +114,11 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
                     "reason": "no_first_touch_training_report",
                     "is_current": False,
                     "current_gate_methodology_version": FIRST_TOUCH_GATE_VERSION,
+                    "target_definition_version": TARGET_DEFINITION_VERSION,
                     "horizon_set_version": RESEARCH_HORIZON_SET_VERSION,
                     "configured_horizons": list(RESEARCH_HORIZONS_MINUTES),
                     "report_gate_methodology_versions": [],
+                    "report_target_definition_versions": [],
                     "model_available": platform._bundle is not None,
                 }
             }
@@ -129,7 +137,23 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
                 is not None
             }
         )
-        current = bool(horizons) and versions == [FIRST_TOUCH_GATE_VERSION]
+        target_versions = sorted(
+            {
+                str(version)
+                for report in horizons.values()
+                if (
+                    version := report.get("metrics", {}).get(
+                        "target_definition_version"
+                    )
+                )
+                is not None
+            }
+        )
+        current = (
+            bool(horizons)
+            and versions == [FIRST_TOUCH_GATE_VERSION]
+            and target_versions == [TARGET_DEFINITION_VERSION]
+        )
         statuses = {key: str(report.get("status", "WAIT")) for key, report in horizons.items()}
         reasons = {key: str(report.get("reason", "unknown")) for key, report in horizons.items()}
         walk_forward = {
@@ -146,9 +170,11 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
             ),
             "is_current": current,
             "current_gate_methodology_version": FIRST_TOUCH_GATE_VERSION,
+            "target_definition_version": TARGET_DEFINITION_VERSION,
             "horizon_set_version": RESEARCH_HORIZON_SET_VERSION,
             "configured_horizons": list(RESEARCH_HORIZONS_MINUTES),
             "report_gate_methodology_versions": versions,
+            "report_target_definition_versions": target_versions,
             "horizon_statuses": statuses,
             "horizon_reasons": reasons,
             "walk_forward_support_by_horizon": walk_forward,
@@ -216,8 +242,12 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
                 "technical_name": "future-excursion quantile regression",
                 "purpose": (
                     "Estimate upside and downside excursion ranges independently for "
-                    "15/30/45/60/120/180/240/480 minutes."
+                    "15/30/45/60/120/180/240/480 minutes, centered on the governed "
+                    f"+{TARGET_PERCENT}% upside objective."
                 ),
+                "target_definition_version": TARGET_DEFINITION_VERSION,
+                "target_up_return": TARGET_UP_RETURN,
+                "target_down_return": TARGET_DOWN_RETURN,
                 "available": bool(shock_available),
                 "available_horizons": shock_available,
                 "waiting_horizons": [h for h in configured if h not in shock_available],
@@ -242,11 +272,12 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
                 "endpoint": "/api/models/adaptive-shock/latest",
                 "training_report_endpoint": "/api/reports/training/adaptive-shock",
             },
-            "first_touch_10": {
-                "display_name": "±10% First-Touch Model",
+            "first_touch_02": {
+                "display_name": f"±{TARGET_PERCENT}% First-Touch Model",
                 "technical_name": "calibrated multiclass first-touch classifier",
                 "purpose": (
-                    "Estimate whether +10%, -10%, or neither is reached first "
+                    f"Estimate whether +{TARGET_PERCENT}%, -{TARGET_PERCENT}%, "
+                    "or neither is reached first "
                     "within each independent horizon through eight hours."
                 ),
                 "available": bool(touch_available),
@@ -265,11 +296,14 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
                 ),
                 "training_rows": touch_training_rows,
                 "gate_methodology_version": FIRST_TOUCH_GATE_VERSION,
+                "target_definition_version": TARGET_DEFINITION_VERSION,
+                "target_up_return": TARGET_UP_RETURN,
+                "target_down_return": TARGET_DOWN_RETURN,
                 "training_report_current": bool(touch_meta.get("is_current", False)),
                 "training_report_status": touch_meta.get("status", "WAIT"),
                 "gate": (
                     "Each horizon needs multiple purged untouched periods with sufficient "
-                    "independent UP_10 and DOWN_10 event clusters, then at least 85% empirical "
+                    "independent UP_02 and DOWN_02 event clusters, then at least 85% empirical "
                     "precision for high-confidence directional predictions. NO_EVENT cannot "
                     "pass the directional gate."
                 ),
@@ -314,6 +348,9 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
             "price_store": asdict(price_stats),
             "configured_horizons_minutes": list(RESEARCH_HORIZONS_MINUTES),
             "horizon_set_version": RESEARCH_HORIZON_SET_VERSION,
+            "target_definition_version": TARGET_DEFINITION_VERSION,
+            "target_up_return": TARGET_UP_RETURN,
+            "target_down_return": TARGET_DOWN_RETURN,
             "first_touch_available_horizons": touch_horizons,
             "adaptive_shock_available_horizons": shock_horizons,
             "first_touch_model_available": bool(touch_horizons),
@@ -334,6 +371,9 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
         payload = asdict(platform.status)
         payload["configured_horizons_minutes"] = list(RESEARCH_HORIZONS_MINUTES)
         payload["horizon_set_version"] = RESEARCH_HORIZON_SET_VERSION
+        payload["target_definition_version"] = TARGET_DEFINITION_VERSION
+        payload["target_up_return"] = TARGET_UP_RETURN
+        payload["target_down_return"] = TARGET_DOWN_RETURN
         payload["adaptive_shock_available_horizons"] = _bundle_horizons(platform.envelope.bundle)
         payload["first_touch_available_horizons"] = _bundle_horizons(platform._bundle)
         payload["adaptive_shock_model_available"] = bool(
@@ -351,6 +391,9 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
     def horizons() -> dict[str, Any]:
         return {
             "horizon_set_version": RESEARCH_HORIZON_SET_VERSION,
+            "target_definition_version": TARGET_DEFINITION_VERSION,
+            "target_up_return": TARGET_UP_RETURN,
+            "target_down_return": TARGET_DOWN_RETURN,
             "horizons_minutes": list(RESEARCH_HORIZONS_MINUTES),
             "semantics": (
                 "Each horizon inspects every completed one-minute candle after the anchor "

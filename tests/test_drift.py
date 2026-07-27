@@ -30,16 +30,16 @@ def test_brier_degradation_triggers_review() -> None:
     reference_predictions = pd.DataFrame(
         {
             "actual_label": labels,
-            "p_up_10": [0.02] * 200,
-            "p_down_10": [0.03] * 200,
+            "p_up_02": [0.02] * 200,
+            "p_down_02": [0.03] * 200,
             "p_no_event": [0.95] * 200,
         }
     )
     current_predictions = pd.DataFrame(
         {
             "actual_label": labels,
-            "p_up_10": [0.40] * 200,
-            "p_down_10": [0.30] * 200,
+            "p_up_02": [0.40] * 200,
+            "p_down_02": [0.30] * 200,
             "p_no_event": [0.30] * 200,
         }
     )

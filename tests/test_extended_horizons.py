@@ -64,7 +64,7 @@ def test_first_touch_v4_fails_closed_without_independent_late_events() -> None:
         {
             "anchor_timestamp_ms": np.arange(rows, dtype=np.int64) * MINUTE,
             "status": ["FINAL"] * rows,
-            "label": ["UP_10"] * 5 + ["DOWN_10"] * 5 + ["NO_EVENT"] * (rows - 10),
+            "label": ["UP_02"] * 5 + ["DOWN_02"] * 5 + ["NO_EVENT"] * (rows - 10),
             "touch_timestamp_ms": [
                 *(index * MINUTE for index in range(10)),
                 *([None] * (rows - 10)),

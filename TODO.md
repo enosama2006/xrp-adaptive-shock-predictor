@@ -16,7 +16,7 @@ Nothing is complete merely because a file or dashboard box exists.
 ## G0 — Freeze the product contract
 
 - [x] Define Model A as independent future-excursion / adaptive-shock magnitude forecasting.
-- [x] Define Model B as independent ±10% first-touch classification.
+- [x] Define Model B as independent ±2% first-touch classification.
 - [x] Separate the two models in the dashboard and API names.
 - [x] Document that both models share data/features only, not targets, artifacts, reports, or readiness.
 - [x] Preserve `WAIT` as the official action until evidence gates pass.
@@ -95,7 +95,7 @@ Nothing is complete merely because a file or dashboard box exists.
 
 ## G3 — Model B target correctness
 
-- [x] Define `UP_10`, `DOWN_10`, `NO_EVENT`, `AMBIGUOUS`, and `INCOMPLETE`.
+- [x] Define `UP_02`, `DOWN_02`, `NO_EVENT`, `AMBIGUOUS`, and `INCOMPLETE`.
 - [x] Create 15/30/45/60-minute anchors.
 - [ ] Use candle high/low for barrier touches instead of close-only points.
 - [ ] Mark same-candle dual hit as `AMBIGUOUS` unless finer ordering is available.
@@ -148,7 +148,7 @@ Nothing is complete merely because a file or dashboard box exists.
 - [x] high-confidence empirical precision gate scaffold.
 - [ ] PR-AUC by class.
 - [ ] expected calibration error and reliability curves.
-- [ ] false-alert rate for `UP_10` and `DOWN_10`.
+- [ ] false-alert rate for `UP_02` and `DOWN_02`.
 - [ ] comparison with unconditional and always-`NO_EVENT` baselines.
 
 ---

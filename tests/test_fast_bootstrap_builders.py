@@ -46,7 +46,7 @@ def test_vectorized_first_touch_builder_emits_all_real_anchors(tmp_path: Path) -
     first = frame[
         (frame["anchor_timestamp_ms"] == 0) & (frame["horizon_minutes"] == 15)
     ].iloc[0]
-    assert first["label"] == "UP_10"
+    assert first["label"] == "UP_02"
     assert first["status"] == "FINAL"
     pending = frame[
         (frame["anchor_timestamp_ms"] == 120 * MINUTE)

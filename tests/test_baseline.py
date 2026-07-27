@@ -8,11 +8,11 @@ from xasp.baseline import (
 
 
 def _dataset(rows: int) -> pd.DataFrame:
-    labels = ["UP_10", "DOWN_10", "NO_EVENT"]
+    labels = ["UP_02", "DOWN_02", "NO_EVENT"]
     label_series = [labels[i % 3] for i in range(rows)]
     feature_map = {
-        "UP_10": (0.025, 0.012),
-        "DOWN_10": (-0.025, 0.012),
+        "UP_02": (0.025, 0.012),
+        "DOWN_02": (-0.025, 0.012),
         "NO_EVENT": (0.0, 0.002),
     }
     return pd.DataFrame(
@@ -58,7 +58,7 @@ def test_temporal_baseline_trains_when_directional_gate_passes() -> None:
     assert report.metrics["directional_high_confidence_predictions"] >= 20
     assert report.metrics["directional_high_confidence_empirical_precision"] >= 0.85
     assert report.metrics["probability_sum_max_error"] < 1e-9
-    assert set(report.metrics["per_class"]) == {"UP_10", "DOWN_10", "NO_EVENT"}
+    assert set(report.metrics["per_class"]) == {"UP_02", "DOWN_02", "NO_EVENT"}
     walk_forward = report.metrics["walk_forward_support_audit"]
     assert walk_forward["status"] == "PASS"
     assert walk_forward["eligible_fold_count"] >= 2
@@ -71,7 +71,7 @@ def test_dominant_no_event_accuracy_cannot_pass_directional_gate() -> None:
         {
             "anchor_timestamp_ms": [i * 60_000 for i in range(rows)],
             "status": ["FINAL"] * rows,
-            "label": ["UP_10"] * 5 + ["DOWN_10"] * 5 + ["NO_EVENT"] * (rows - 10),
+            "label": ["UP_02"] * 5 + ["DOWN_02"] * 5 + ["NO_EVENT"] * (rows - 10),
             "return_1m": [0.03] * 5 + [-0.03] * 5 + [0.0] * (rows - 10),
             "volatility_5m": [0.02] * 10 + [0.001] * (rows - 10),
         }

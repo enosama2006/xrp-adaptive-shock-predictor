@@ -21,8 +21,8 @@ def _frame(rows: int = 1_000) -> pd.DataFrame:
     for block in range(0, rows, 20):
         if block + 1 >= rows:
             continue
-        labels[block] = "UP_10"
-        labels[block + 1] = "DOWN_10"
+        labels[block] = "UP_02"
+        labels[block + 1] = "DOWN_02"
         touch[block] = block * MINUTE + 3 * MINUTE
         touch[block + 1] = block * MINUTE + 4 * MINUTE
     return pd.DataFrame(
@@ -39,7 +39,7 @@ def _sparse_split_event_frame(rows: int = 1_000) -> pd.DataFrame:
     anchor = pd.Series(range(rows), dtype="int64") * MINUTE
     labels = ["NO_EVENT"] * rows
     touch: list[int | None] = [None] * rows
-    for index, label in ((650, "UP_10"), (760, "DOWN_10"), (850, "UP_10"), (960, "DOWN_10")):
+    for index, label in ((650, "UP_02"), (760, "DOWN_02"), (850, "UP_02"), (960, "DOWN_02")):
         labels[index] = label
         touch[index] = (index + 2) * MINUTE
     return pd.DataFrame(
@@ -100,10 +100,10 @@ def test_event_support_reports_rows_and_independent_clusters_per_period() -> Non
 
     assert len(support) == 4
     for item in support:
-        assert item["event_support"]["UP_10"] >= 4
-        assert item["event_support"]["DOWN_10"] >= 4
-        assert item["independent_event_clusters"]["UP_10"] >= 4
-        assert item["independent_event_clusters"]["DOWN_10"] >= 4
+        assert item["event_support"]["UP_02"] >= 4
+        assert item["event_support"]["DOWN_02"] >= 4
+        assert item["independent_event_clusters"]["UP_02"] >= 4
+        assert item["independent_event_clusters"]["DOWN_02"] >= 4
         assert item["all_events_present"] is True
         assert item["all_cluster_types_present"] is True
 
@@ -112,14 +112,14 @@ def test_overlapping_positive_rows_count_as_one_independent_event() -> None:
     frame = pd.DataFrame(
         {
             "anchor_timestamp_ms": [0, MINUTE, 2 * MINUTE, 20 * MINUTE],
-            "label": ["UP_10", "UP_10", "UP_10", "UP_10"],
+            "label": ["UP_02", "UP_02", "UP_02", "UP_02"],
             "touch_timestamp_ms": [5 * MINUTE, 5 * MINUTE, 6 * MINUTE, 25 * MINUTE],
         }
     )
 
     clusters = count_independent_event_clusters(
         frame,
-        label="UP_10",
+        label="UP_02",
         cluster_separation_ms=5 * MINUTE,
     )
 
@@ -139,8 +139,8 @@ def test_directional_support_gate_waits_when_events_are_split_across_periods() -
 
     assert audit["status"] == "WAIT"
     assert audit["eligible_fold_count"] == 0
-    assert audit["aggregate_event_support"] == {"UP_10": 2, "DOWN_10": 2}
-    assert audit["aggregate_independent_event_clusters"] == {"UP_10": 2, "DOWN_10": 2}
+    assert audit["aggregate_event_support"] == {"UP_02": 2, "DOWN_02": 2}
+    assert audit["aggregate_independent_event_clusters"] == {"UP_02": 2, "DOWN_02": 2}
 
 
 def test_directional_support_gate_requires_multiple_independent_periods() -> None:
@@ -157,8 +157,8 @@ def test_directional_support_gate_requires_multiple_independent_periods() -> Non
     assert audit["status"] == "PASS"
     assert audit["eligible_fold_count"] == 4
     assert audit["eligible_fold_indices"] == [1, 2, 3, 4]
-    assert audit["aggregate_independent_event_clusters"]["UP_10"] >= 16
-    assert audit["aggregate_independent_event_clusters"]["DOWN_10"] >= 16
+    assert audit["aggregate_independent_event_clusters"]["UP_02"] >= 16
+    assert audit["aggregate_independent_event_clusters"]["DOWN_02"] >= 16
 
 
 def test_walk_forward_rejects_fraction_layout_beyond_timeline() -> None:
