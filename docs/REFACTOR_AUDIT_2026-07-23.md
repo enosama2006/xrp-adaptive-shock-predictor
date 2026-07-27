@@ -5,7 +5,7 @@
 This audit reviewed the current repository against the agreed dual-model scientific contract:
 
 - Model A: XRP Adaptive Shock Predictor / future-excursion magnitude model.
-- Model B: ±10% First-Touch Predictor.
+- Model B: ±2% First-Touch Predictor.
 - At least one year of real minute history, then continuous minute enrichment.
 - Causal feature engineering and training-only scaling.
 - Near-price order-book supply/demand features that cannot be dominated by far-away walls.
@@ -48,7 +48,7 @@ Critical weaknesses:
 
 **Severity:** Critical documentation/product risk.
 
-The repository historically described only first-touch ±10% as the project objective, while the current implementation also contains an independent future-excursion model. This caused the dashboard and discussions to confuse one model with the other.
+The repository historically described only first-touch ±2% as the project objective, while the current implementation also contains an independent future-excursion model. This caused the dashboard and discussions to confuse one model with the other.
 
 **Action:** README, master plan, status, TODO, APIs, and dashboard must use one frozen naming contract.
 
@@ -60,7 +60,7 @@ The repository historically described only first-touch ±10% as the project obje
 
 **Severity:** P0 correctness.
 
-The anchor builder and prediction ledger convert each minute to a close-only `PricePoint`. A candle may trade above +10% or below -10% and close back inside the barrier. Such a real touch would be missed.
+The anchor builder and prediction ledger convert each minute to a close-only `PricePoint`. A candle may trade above +2% or below -2% and close back inside the barrier. Such a real touch would be missed.
 
 **Required correction:**
 
@@ -187,7 +187,7 @@ The UI and documentation must not imply more than is implemented.
 
 **Severity:** P1 statistical risk.
 
-A ±10% move within 15–60 minutes may be rare. One year of minute anchors creates many overlapping rows but not necessarily many independent `UP_10` or `DOWN_10` events.
+A ±2% move within 15–60 minutes may be rare. One year of minute anchors creates many overlapping rows but not necessarily many independent `UP_02` or `DOWN_02` events.
 
 **Required correction:** report class support and independent event clusters. Never treat large overlapping row counts as independent evidence. Keep the gate closed when support is insufficient.
 

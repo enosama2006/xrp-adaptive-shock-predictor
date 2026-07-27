@@ -51,9 +51,9 @@ def population_stability_index(
 
 
 def _multiclass_brier(frame: pd.DataFrame) -> float:
-    labels = ("UP_10", "DOWN_10", "NO_EVENT")
+    labels = ("UP_02", "DOWN_02", "NO_EVENT")
     values: list[float] = []
-    for label, column in zip(labels, ("p_up_10", "p_down_10", "p_no_event"), strict=True):
+    for label, column in zip(labels, ("p_up_02", "p_down_02", "p_no_event"), strict=True):
         truth = (frame["actual_label"] == label).astype(int)
         values.append(float(brier_score_loss(truth, frame[column])))
     return float(np.mean(values))
@@ -86,7 +86,7 @@ def assess_drift(
     current_brier: float | None = None
     degradation = 0.0
     if reference_predictions is not None and current_predictions is not None:
-        required = {"actual_label", "p_up_10", "p_down_10", "p_no_event"}
+        required = {"actual_label", "p_up_02", "p_down_02", "p_no_event"}
         for frame in (reference_predictions, current_predictions):
             if missing_columns := required - set(frame.columns):
                 raise ValueError(f"prediction drift frame missing columns: {sorted(missing_columns)}")

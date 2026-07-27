@@ -19,6 +19,11 @@ from .future_envelope import (
     predict_envelope,
     train_future_envelope,
 )
+from .target_definition import (
+    TARGET_DEFINITION_VERSION,
+    TARGET_DOWN_RETURN,
+    TARGET_UP_RETURN,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,7 +42,11 @@ class EnvelopeEngine:
         self.bundle: dict[str, Any] | None = None
         if paths.model.exists():
             loaded = joblib.load(paths.model)
-            if isinstance(loaded, dict):
+            if (
+                isinstance(loaded, dict)
+                and loaded.get("target_definition_version")
+                == TARGET_DEFINITION_VERSION
+            ):
                 self.bundle = loaded
 
     def rebuild_targets(self, prices: pd.DataFrame) -> pd.DataFrame:
@@ -84,13 +93,16 @@ class EnvelopeEngine:
             return False
 
         bundle = {
-            "model_version": f"real-envelope-{int(time.time())}",
+            "model_version": f"real-envelope-2pct-context-{int(time.time())}",
             "trained_at_ms": int(time.time() * 1000),
             "feature_names": feature_names,
             "models": models,
             "reports": reports,
             "source": "observed_binance_ohlc_only",
             "required_empirical_interval_coverage": 0.85,
+            "target_definition_version": TARGET_DEFINITION_VERSION,
+            "target_up_return": TARGET_UP_RETURN,
+            "target_down_return": TARGET_DOWN_RETURN,
             "training_final_rows": int(training_final_rows),
             "promoted_for_trading": False,
         }
@@ -143,6 +155,10 @@ class EnvelopeEngine:
                     "min_return_q95": min_high,
                     "max_price_q50": anchor_price * (1.0 + max_mid),
                     "min_price_q50": anchor_price * (1.0 + min_mid),
+                    "target_up_return": TARGET_UP_RETURN,
+                    "target_up_price": anchor_price * (1.0 + TARGET_UP_RETURN),
+                    "target_up_reached_by_median": max_mid >= TARGET_UP_RETURN,
+                    "target_up_reached_by_upper_bound": max_high >= TARGET_UP_RETURN,
                     "empirical_gate": "PASSED_85_COVERAGE",
                     "decision": "WAIT",
                     "decision_reason": "research_model_not_trading_promoted",

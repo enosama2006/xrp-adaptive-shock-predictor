@@ -33,18 +33,18 @@ def candle(minute: int, *, close: float = 100.0, high: float = 100.0, low: float
 
 def test_intraminute_upper_touch_is_not_missed_when_close_reverts() -> None:
     path = [candle(i) for i in range(1, 61)]
-    path[9] = candle(10, close=101.0, high=111.0, low=99.0)
+    path[9] = candle(10, close=101.0, high=103.0, low=99.0)
 
     result = label_first_touch_candles(PricePoint(0, 100.0), path)
 
-    assert result.label == BarrierLabel.UP_10
+    assert result.label == BarrierLabel.UP_02
     assert result.touch_timestamp_ms == 10 * MINUTE
-    assert result.touch_price == pytest.approx(110.0)
+    assert result.touch_price == pytest.approx(102.0)
 
 
 def test_same_candle_dual_touch_is_ambiguous() -> None:
     path = [candle(i) for i in range(1, 61)]
-    path[4] = candle(5, close=100.0, high=111.0, low=89.0)
+    path[4] = candle(5, close=100.0, high=103.0, low=97.0)
 
     result = label_first_touch_candles(PricePoint(0, 100.0), path)
 
@@ -63,7 +63,7 @@ def test_missing_internal_minute_forces_incomplete() -> None:
 
 def test_anchor_dataset_uses_candle_high_and_excludes_ambiguous(tmp_path: Path) -> None:
     candles = [candle(i, close=100.0) for i in range(0, 21)]
-    candles[10] = candle(10, close=100.0, high=111.0, low=100.0)
+    candles[10] = candle(10, close=100.0, high=103.0, low=100.0)
     store = AnchorDatasetStore(tmp_path / "anchors.parquet")
     state = DatasetStateStore(tmp_path / "state.json")
 
@@ -75,9 +75,9 @@ def test_anchor_dataset_uses_candle_high_and_excludes_ambiguous(tmp_path: Path) 
     )
 
     anchor = frame[frame["anchor_timestamp_ms"] == 0].iloc[0]
-    assert anchor["label"] == "UP_10"
+    assert anchor["label"] == "UP_02"
     assert anchor["status"] == "FINAL"
-    assert anchor["max_price"] == 111.0
+    assert anchor["max_price"] == 103.0
 
 
 def test_candle_horizon_must_align_to_cadence() -> None:

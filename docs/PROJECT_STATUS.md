@@ -31,7 +31,7 @@ Current limitation:
 - no independent production ledger maturation equivalent to Model B;
 - derivatives, BTC/ETH, trade-flow, and order-book features are not yet joined.
 
-### Model B — ±10% First-Touch Predictor
+### Model B — ±2% First-Touch Predictor
 
 Current implementation:
 
@@ -48,7 +48,7 @@ Current limitation:
 - candle highs/lows must be used so intraminute touches are not missed;
 - same-candle dual touches must remain `AMBIGUOUS`;
 - purge/embargo helpers exist but are not yet used by the actual trainer;
-- rare-event support for ±10% may be insufficient even with one year of minute data.
+- rare-event support for ±2% may be insufficient even with one year of minute data.
 
 ---
 
@@ -75,7 +75,7 @@ Current limitation:
 ### P0 — correctness
 
 1. **Candle timestamp semantics**: Binance kline close timestamps end in `59,999`; anchor timestamps are minute boundaries. The ingestion path must normalize completed candles to an exact availability boundary and migrate legacy local rows.
-2. **Model B OHLC labeling**: close-only first-touch logic can miss a +10% or -10% touch that occurred inside a minute candle.
+2. **Model B OHLC labeling**: close-only first-touch logic can miss a +2% or -2% touch that occurred inside a minute candle.
 3. **Internal path gaps**: reaching the final horizon timestamp is not enough if intermediate minutes are missing.
 4. **Purged validation not wired**: helper code exists, but current trainers still use simple chronological fractions.
 5. **Implicit feature selection**: the runtime currently treats most numeric feature columns as model inputs. An explicit registry is required so raw price, total far-book quantity, diagnostic context, and accidental columns cannot enter training.
@@ -138,7 +138,7 @@ Current limitation:
 ### Model B research ready
 
 - OHLC first-touch labels complete and gap-safe;
-- sufficient `UP_10` and `DOWN_10` support;
+- sufficient `UP_02` and `DOWN_02` support;
 - purged chronological calibration/testing complete;
 - high-confidence empirical precision and class-wise metrics pass;
 - live production calibration remains stable.

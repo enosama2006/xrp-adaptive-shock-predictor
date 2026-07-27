@@ -7,7 +7,7 @@ Updated: 2026-07-23
 Build a restart-safe, real-data XRP research platform with two scientifically independent models:
 
 1. **Model A — XRP Adaptive Shock Predictor**: estimate likely future upside/downside excursion ranges and shock magnitude over 15/30/45/60 minutes.
-2. **Model B — ±10% First-Touch Predictor**: estimate whether +10%, -10%, or neither barrier is reached first over the same horizons.
+2. **Model B — ±2% First-Touch Predictor**: estimate whether +2%, -2%, or neither barrier is reached first over the same horizons.
 
 Both models share a governed point-in-time data platform, but each owns its targets, trainer, model artifacts, prediction store, production report, and readiness gate.
 
@@ -33,8 +33,8 @@ For every horizon:
 
 For every horizon:
 
-- `p_up_10`
-- `p_down_10`
+- `p_up_02`
+- `p_down_02`
 - `p_no_event`
 - predicted class and uncertainty
 - model version and training timestamp
@@ -137,7 +137,7 @@ Acceptance:
 
 For every anchor and horizon, record:
 
-- `UP_10`, `DOWN_10`, `NO_EVENT`, `AMBIGUOUS`, or `INCOMPLETE`;
+- `UP_02`, `DOWN_02`, `NO_EVENT`, `AMBIGUOUS`, or `INCOMPLETE`;
 - barrier prices;
 - touch timestamp;
 - MFE/MAE;
@@ -206,7 +206,7 @@ Every completed minute:
 ### Context bands
 
 - 500 bps (5%): medium context;
-- 1000 bps (10%): target-corridor context;
+- 200 bps (2%): governed target-corridor context;
 - 2000 bps (20%): diagnostics only;
 - 5000 bps (50%) and farther: prohibited from pressure/direction features.
 
@@ -249,7 +249,7 @@ Every completed minute:
 - class-wise precision/recall/F1 and PR-AUC;
 - Brier scores and calibration error;
 - high-confidence empirical precision with support count;
-- false-alert rate for `UP_10` and `DOWN_10`;
+- false-alert rate for `UP_02` and `DOWN_02`;
 - production metrics by horizon and independent event cluster.
 
 ### Shared

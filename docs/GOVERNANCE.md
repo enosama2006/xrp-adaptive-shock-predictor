@@ -11,7 +11,7 @@ One person may perform several roles during prototyping, but the evidence artifa
 
 ## Immutable principles
 
-1. The target is first touch of +10% or -10% from the reference price within a declared horizon.
+1. The target is first touch of +2% or -2% from the reference price within a declared horizon.
 2. A prediction is not a result until its full path window has matured.
 3. Historical performance must be evaluated in chronological order.
 4. Training, validation, calibration, and final testing are separate periods.

@@ -36,7 +36,7 @@ def _prices(rows: int = 500) -> pd.DataFrame:
 def _config() -> DiscoveryConfig:
     return DiscoveryConfig(
         horizons_minutes=(5, 10, 20, 40),
-        threshold_return=0.10,
+        threshold_return=0.02,
         anchor_stride_minutes=5,
         volatility_window_minutes=20,
         batch_rows=8,
@@ -50,12 +50,12 @@ def test_discovery_reports_observed_passage_times_and_excursions() -> None:
     assert report["status"] == "READY"
     assert report["valid_anchor_count"] > 0
     assert report["return_distribution"]["status"] == "READY"
-    assert report["barrier_time_statistics"]["UP_10"]["observed_events"] > 0
-    assert report["barrier_time_statistics"]["DOWN_10"]["observed_events"] > 0
-    assert report["barrier_time_statistics"]["UP_10"]["median_minutes"] is not None
-    assert report["barrier_time_statistics"]["DOWN_10"]["mode_minutes"] is not None
-    assert report["horizons"]["40"]["upper_10_reached_count"] > 0
-    assert report["horizons"]["40"]["lower_10_reached_count"] > 0
+    assert report["barrier_time_statistics"]["UP_02"]["observed_events"] > 0
+    assert report["barrier_time_statistics"]["DOWN_02"]["observed_events"] > 0
+    assert report["barrier_time_statistics"]["UP_02"]["median_minutes"] is not None
+    assert report["barrier_time_statistics"]["DOWN_02"]["mode_minutes"] is not None
+    assert report["horizons"]["40"]["upper_02_reached_count"] > 0
+    assert report["horizons"]["40"]["lower_02_reached_count"] > 0
     assert report["horizons"]["40"]["upper_independent_clusters"] > 0
     assert report["horizons"]["40"]["lower_independent_clusters"] > 0
     empirical = report["horizons"]["20"]["empirical_excursion"]

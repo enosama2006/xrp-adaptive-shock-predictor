@@ -1,5 +1,18 @@
 # XRP Adaptive Shock Predictor (XASP)
 
+## Governed target
+
+XASP 1.8.0 uses one versioned target definition across both models:
+
+- the primary objective is an XRP upside move of at least `+2%`;
+- Model B compares first touch of `+2%`, first touch of `-2%`, or `NO_EVENT`;
+- Model A continues to estimate the full future excursion distribution while
+  explicitly evaluating the governed `+2%` upside target.
+
+On the first startup after this target change, XASP preserves raw observed
+Binance candles and invalidates old target-derived anchors, models, reports,
+and predictions before rebuilding them under the 2% definition.
+
 XASP is a research-first, continuously evaluated XRP forecasting platform built around **two independent models** that share a governed real-data layer but do not share targets, model artifacts, prediction ledgers, quality gates, or user-facing outputs.
 
 ## The two models
@@ -18,14 +31,14 @@ For each prediction timestamp and each horizon (15, 30, 45, and 60 minutes), Mod
 
 Model A is not a renamed copy of Model B. It has its own targets, fitted models, model version, report, prediction store, and acceptance criteria.
 
-### Model B — ±10% First-Touch Predictor
+### Model B — ±2% First-Touch Predictor
 
 **Technical form:** calibrated multiclass first-touch classification.
 
 At every eligible timestamp, Model B estimates whether XRP will:
 
-- touch `+10%` first (`UP_10`);
-- touch `-10%` first (`DOWN_10`);
+- touch `+2%` first (`UP_02`);
+- touch `-2%` first (`DOWN_02`);
 - touch neither barrier within the selected horizon (`NO_EVENT`).
 
 When both barriers occur inside the same minute candle and their true order cannot be proven, the label is `AMBIGUOUS` and is excluded from supervised training and production scoring. Missing or incomplete future paths are also excluded.
@@ -90,7 +103,7 @@ Primary bands:
 
 - 0.05%, 0.10%, 0.25%, 0.50%, 1%, and 2% from the mid-price;
 - 5% as medium-distance context;
-- 10% as target-corridor context;
+- 2% as the governed target-corridor context;
 - 20% as diagnostic context only;
 - 50% and farther must not influence model pressure or direction features.
 

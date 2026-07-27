@@ -14,6 +14,11 @@ from .production_report import (
 from .production_report import (
     build_production_report as _build_legacy_report,
 )
+from .target_definition import (
+    TARGET_DEFINITION_VERSION,
+    TARGET_DOWN_RETURN,
+    TARGET_UP_RETURN,
+)
 
 REQUIRED_ENVELOPE_ROWS_PER_HORIZON = 100
 REQUIRED_MARGINAL_INTERVAL_COVERAGE = 0.85
@@ -108,6 +113,9 @@ def build_production_report(
         runtime_status=runtime_status,
     )
     report["horizon_set_version"] = RESEARCH_HORIZON_SET_VERSION
+    report["target_definition_version"] = TARGET_DEFINITION_VERSION
+    report["target_up_return"] = TARGET_UP_RETURN
+    report["target_down_return"] = TARGET_DOWN_RETURN
     report["configured_horizons_minutes"] = list(RESEARCH_HORIZONS_MINUTES)
 
     first_touch = report.setdefault("first_touch", {})

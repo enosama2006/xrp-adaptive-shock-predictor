@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <meta name="description" content="XASP — منصّة بحثية تفصل نموذج الصدمة عن نموذج الوصول الأول ±10%." />
+  <meta name="description" content="XASP — منصّة بحثية تفصل نموذج الصدمة عن نموذج الوصول الأول ±2%." />
   <title>XASP — Dual Model Research Platform</title>
   <link rel="stylesheet" href="styles.css" />
   <link rel="stylesheet" href="/api/lab.css" />
@@ -73,7 +73,7 @@
       <div class="model-header">
         <div>
           <span class="model-number">EMPIRICAL DISCOVERY</span>
-          <h2 id="discoveryTitle">استكشاف زمن الوصول إلى ±10%</h2>
+          <h2 id="discoveryTitle">استكشاف زمن الوصول إلى ±2%</h2>
           <p>تحليل وصفي مستقل يسبق تدريب Model B. يقيس زمن الوصول الفعلي، الوسط والوسيط والمنوال والذيل، ويعرض الأرقام حتى عندما تبقى النماذج في WAIT.</p>
         </div>
         <div class="model-state"><span>الحالة</span><strong id="discoveryState">WAIT</strong><small id="discoveryUpdated">لم يُنشأ التقرير بعد</small></div>
@@ -85,8 +85,8 @@
         <div><span>آخر سعر مرصود</span><strong id="discoveryLatestPrice">—</strong></div>
       </div>
       <div class="model-footer-grid">
-        <article class="panel"><h3>إحصاءات الوصول إلى +10%</h3><div id="upPassageStats" class="factor-list"></div></article>
-        <article class="panel"><h3>إحصاءات الوصول إلى −10%</h3><div id="downPassageStats" class="factor-list"></div></article>
+        <article class="panel"><h3>إحصاءات الوصول إلى +2%</h3><div id="upPassageStats" class="factor-list"></div></article>
+        <article class="panel"><h3>إحصاءات الوصول إلى −2%</h3><div id="downPassageStats" class="factor-list"></div></article>
       </div>
       <div class="model-footer-grid">
         <article class="panel"><h3>شكل توزيع عوائد الدقيقة</h3><div id="returnDistributionStats" class="factor-list"></div></article>
@@ -94,14 +94,14 @@
       </div>
       <article class="panel discovery-table-panel">
         <h3>معدلات الوصول والنطاق التاريخي حسب النافذة</h3>
-        <div class="table-wrap"><table><thead><tr><th>النافذة</th><th>+10% وصل</th><th>−10% وصل</th><th>أي لمس</th><th>صدمات مستقلة +/−</th><th>الارتفاع الوسيط</th><th>الهبوط الوسيط</th><th>العينة</th></tr></thead><tbody id="discoveryHorizonBody"><tr><td colspan="8" class="empty">بانتظار تقرير الاستكشاف</td></tr></tbody></table></div>
+        <div class="table-wrap"><table><thead><tr><th>النافذة</th><th>+2% وصل</th><th>−2% وصل</th><th>أي لمس</th><th>صدمات مستقلة +/−</th><th>الارتفاع الوسيط</th><th>الهبوط الوسيط</th><th>العينة</th></tr></thead><tbody id="discoveryHorizonBody"><tr><td colspan="8" class="empty">بانتظار تقرير الاستكشاف</td></tr></tbody></table></div>
       </article>
       <section class="governance-note"><strong>مهم:</strong> هذه أرقام تاريخية تجريبية وليست توقعات حية. تبقى الترقية للتداول غير مفعلة، ولا تدخل بيانات القيمة السوقية أو حصة الحجم في التدريب قبل جمع تاريخها كما كان متاحًا في كل لحظة.</section>
     </section>
 
     <section class="model-section shock-section">
       <div class="model-header">
-        <div><span class="model-number">MODEL A</span><h2>نموذج الصدمة التكيفي</h2><p>Adaptive Shock Magnitude Model — يتوقع نطاق الحركة الصاعدة والهابطة وشدة الصدمة المحتملة من 15 دقيقة حتى 8 ساعات.</p></div>
+        <div><span class="model-number">MODEL A</span><h2>نموذج الصدمة التكيفي — هدف +2%</h2><p>Adaptive Shock Magnitude Model — يتوقع نطاق الحركة وشدة الصدمة، ويقيّم صراحةً احتمال بلوغ صعود 2% فأكثر من 15 دقيقة حتى 8 ساعات.</p></div>
         <div class="model-state"><span>الحالة</span><strong id="shockState">WAIT</strong><small id="shockVersion">لا يوجد نموذج مدرّب</small></div>
       </div>
       <div id="shockHorizonGrid" class="horizon-card-grid"></div>
@@ -113,7 +113,7 @@
 
     <section class="model-section touch-section">
       <div class="model-header">
-        <div><span class="model-number">MODEL B</span><h2>نموذج الوصول الأول ±10%</h2><p>±10% First-Touch Model — يتوقع هل يصل XRP إلى +10% أولًا، أو −10% أولًا، أو لا يصل إلى أي منهما ضمن الأفق.</p></div>
+        <div><span class="model-number">MODEL B</span><h2>نموذج الوصول الأول ±2%</h2><p>±2% First-Touch Model — يتوقع هل يصل XRP إلى +2% أولًا، أو −2% أولًا، أو لا يصل إلى أي منهما ضمن الأفق.</p></div>
         <div class="model-state"><span>الحالة</span><strong id="touchState">WAIT</strong><small id="touchVersion">لا يوجد نموذج مدرّب</small></div>
       </div>
       <div id="touchHorizonGrid" class="horizon-card-grid"></div>
@@ -125,7 +125,7 @@
 
     <section class="panel ledger-panel">
       <div class="panel-heading compact"><div><span class="section-kicker">MODEL B فقط</span><h2>سجل توقعات الوصول الأول والنتائج المتأخرة</h2></div></div>
-      <div class="table-wrap"><table><thead><tr><th>وقت الإصدار</th><th>الأفق</th><th>السعر</th><th>+10%</th><th>−10%</th><th>لا حدث</th><th>الحالة</th><th>النتيجة</th></tr></thead><tbody id="ledgerBody"><tr><td colspan="8" class="empty">لم تُسجل توقعات بعد</td></tr></tbody></table></div>
+      <div class="table-wrap"><table><thead><tr><th>وقت الإصدار</th><th>الأفق</th><th>السعر</th><th>+2%</th><th>−2%</th><th>لا حدث</th><th>الحالة</th><th>النتيجة</th></tr></thead><tbody id="ledgerBody"><tr><td colspan="8" class="empty">لم تُسجل توقعات بعد</td></tr></tbody></table></div>
     </section>
 
     <section class="governance-note"><strong>الحكم الحالي:</strong> ظهور الصناديق لا يعني أن النموذج يعمل. تعرض المنصة مراحل جمع التاريخ وبناء الخصائص والتدريب صراحةً، وتبقى WAIT إلى أن تجتاز كل بوابات الأدلة خارج العينة.</section>

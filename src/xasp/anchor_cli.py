@@ -25,7 +25,7 @@ def _load_price_points(path: Path, timestamp_column: str, price_column: str) -> 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Incrementally append anchors and finalize matured ±10% labels."
+        description="Incrementally append anchors and finalize matured ±2% labels."
     )
     parser.add_argument("--prices", type=Path, required=True, help="Input Parquet price path")
     parser.add_argument("--anchors", type=Path, required=True, help="Persistent anchor Parquet path")

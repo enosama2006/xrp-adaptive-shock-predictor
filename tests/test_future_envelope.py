@@ -29,8 +29,8 @@ def test_targets_capture_intrahorizon_close_extremes_when_ohlc_absent() -> None:
     assert np.isclose(row["future_min_return"], -0.06)
     assert int(row["minutes_to_max"]) == 3
     assert int(row["minutes_to_min"]) == 7
-    assert bool(row["hit_up_10"])
-    assert not bool(row["hit_down_10"])
+    assert bool(row["hit_up_02"])
+    assert bool(row["hit_down_02"])
 
 
 def test_targets_use_intraminute_high_and_low_not_close_only() -> None:
@@ -47,8 +47,8 @@ def test_targets_use_intraminute_high_and_low_not_close_only() -> None:
     assert np.isclose(row["future_min_return"], -0.11)
     assert int(row["minutes_to_max"]) == 1
     assert int(row["minutes_to_min"]) == 6
-    assert bool(row["hit_up_10"])
-    assert bool(row["hit_down_10"])
+    assert bool(row["hit_up_02"])
+    assert bool(row["hit_down_02"])
 
 
 def test_incomplete_horizon_is_not_fabricated() -> None:

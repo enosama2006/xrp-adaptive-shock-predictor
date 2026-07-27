@@ -1,7 +1,7 @@
 """Governed scientific baselines for first-touch event probabilities.
 
 The promotion gate is deliberately event-specific. Correctly predicting the
-very common ``NO_EVENT`` class cannot qualify a ±10% directional model as
+very common ``NO_EVENT`` class cannot qualify a ±2% directional model as
 research-ready. Before any model performance claim, multiple purged untouched
 periods must contain enough examples of both directional event classes.
 """
@@ -37,8 +37,8 @@ try:
 except ImportError:  # scikit-learn < 1.6
     FrozenEstimator = None
 
-ALLOWED_LABELS = ("UP_10", "DOWN_10", "NO_EVENT")
-EVENT_LABELS = ("UP_10", "DOWN_10")
+ALLOWED_LABELS = ("UP_02", "DOWN_02", "NO_EVENT")
+EVENT_LABELS = ("UP_02", "DOWN_02")
 EXCLUDED_LABELS = ("AMBIGUOUS", "INCOMPLETE")
 FIRST_TOUCH_GATE_VERSION = "first-touch-purged-walk-forward-directional-gate-v3"
 

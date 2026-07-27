@@ -127,8 +127,8 @@ function renderHorizonTable(horizons) {
       const excursion = row.empirical_excursion || {};
       return `<tr>
         <td>${horizonLabel(minutes)}</td>
-        <td class="positive">${number(row.upper_10_reached_count)} (${percent(row.upper_10_reached_rate)})</td>
-        <td class="negative">${number(row.lower_10_reached_count)} (${percent(row.lower_10_reached_rate)})</td>
+        <td class="positive">${number(row.upper_02_reached_count)} (${percent(row.upper_02_reached_rate)})</td>
+        <td class="negative">${number(row.lower_02_reached_count)} (${percent(row.lower_02_reached_rate)})</td>
         <td>${percent(row.any_10pct_touch_rate)}</td>
         <td>${number(row.upper_independent_clusters)} / ${number(row.lower_independent_clusters)}</td>
         <td class="positive">${signedPercent(excursion.max_return_q50)}</td>
@@ -170,7 +170,7 @@ function enrichTouchWaitCards(payload) {
     const list = card.querySelector("dl");
     if (!list) return;
     list.innerHTML = `
-      <div><dt>وصل +10% / −10%</dt><dd>${number(row.upper_10_reached_count)} / ${number(row.lower_10_reached_count)}</dd></div>
+      <div><dt>وصل +2% / −2%</dt><dd>${number(row.upper_02_reached_count)} / ${number(row.lower_02_reached_count)}</dd></div>
       <div><dt>أول وصول صعود / هبوط</dt><dd>${number(row.up_first_count)} / ${number(row.down_first_count)}</dd></div>
       <div><dt>صدمات مستقلة + / −</dt><dd>${number(row.upper_independent_clusters)} / ${number(row.lower_independent_clusters)}</dd></div>
       <div><dt>نسبة أي لمس</dt><dd>${percent(row.any_10pct_touch_rate)}</dd></div>
@@ -210,8 +210,8 @@ function renderDiscovery(payload) {
   byId("discoveryLatestPrice").textContent = price(payload.data?.latest_price);
 
   const barrier = payload.barrier_time_statistics || {};
-  byId("upPassageStats").innerHTML = passageFactors(barrier.UP_10 || {}, "UP");
-  byId("downPassageStats").innerHTML = passageFactors(barrier.DOWN_10 || {}, "DOWN");
+  byId("upPassageStats").innerHTML = passageFactors(barrier.UP_02 || {}, "UP");
+  byId("downPassageStats").innerHTML = passageFactors(barrier.DOWN_02 || {}, "DOWN");
   renderReturnDistribution(payload.return_distribution || {});
   renderExternalContext(payload.external_context_feature_status || {});
   renderHorizonTable(payload.horizons || {});

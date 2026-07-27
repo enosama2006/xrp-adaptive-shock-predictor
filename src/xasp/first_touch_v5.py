@@ -1,8 +1,8 @@
 """Model B gate v5: independent events and independent period performance.
 
 A horizon is publishable for research only when:
-1. multiple purged walk-forward test periods contain enough independent +10%
-   and -10% event clusters;
+1. multiple purged walk-forward test periods contain enough independent +2%
+   and -2% event clusters;
 2. at least two of those periods independently pass the 85% high-confidence
    directional precision gate with support for both directions; and
 3. the final untouched temporal test also passes the same directional gate.
@@ -32,6 +32,11 @@ from .baseline import (
     _expected_calibration_error,
     train_multinomial_baseline,
 )
+from .target_definition import (
+    TARGET_DEFINITION_VERSION,
+    TARGET_DOWN_RETURN,
+    TARGET_UP_RETURN,
+)
 from .walk_forward import (
     WalkForwardConfig,
     WalkForwardFold,
@@ -40,7 +45,7 @@ from .walk_forward import (
 )
 
 FIRST_TOUCH_GATE_VERSION = (
-    "first-touch-independent-event-and-period-performance-gate-v5"
+    "first-touch-2pct-independent-event-and-period-performance-gate-v6"
 )
 MINIMUM_INDEPENDENT_EVENT_CLUSTERS_PER_CLASS = 3
 
@@ -136,6 +141,9 @@ def _wait_report(
         class_counts=counts,
         metrics={
             "gate_methodology_version": FIRST_TOUCH_GATE_VERSION,
+            "target_definition_version": TARGET_DEFINITION_VERSION,
+            "target_up_return": TARGET_UP_RETURN,
+            "target_down_return": TARGET_DOWN_RETURN,
             **metrics,
         },
     )
@@ -294,6 +302,9 @@ def train_first_touch_v5(
         "gate_methodology_version"
     )
     metrics["gate_methodology_version"] = FIRST_TOUCH_GATE_VERSION
+    metrics["target_definition_version"] = TARGET_DEFINITION_VERSION
+    metrics["target_up_return"] = TARGET_UP_RETURN
+    metrics["target_down_return"] = TARGET_DOWN_RETURN
     metrics["walk_forward_support_audit"] = support_audit
     metrics["walk_forward_performance_audit"] = performance_audit
     metrics["independent_event_cluster_separation_ms"] = config.label_horizon_ms

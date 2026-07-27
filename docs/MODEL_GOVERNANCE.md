@@ -2,7 +2,7 @@
 
 ## Purpose
 
-XASP is a research system for estimating whether XRP reaches +10% or -10% first within 15–60 minutes. It is not approved for automated trading.
+XASP is a research system for estimating whether XRP reaches +2% or -2% first within 15–60 minutes. It is not approved for automated trading.
 
 ## Decision states
 
@@ -22,7 +22,7 @@ A candidate model cannot emit actionable signals until all gates pass:
    - data freshness and missingness reported.
 
 2. **Label integrity**
-   - first-touch +10% / -10% / no-event labels;
+   - first-touch +2% / -2% / no-event labels;
    - exact event timestamps;
    - overlapping labels handled explicitly;
    - ambiguous or incomplete paths excluded and reported.
@@ -66,7 +66,7 @@ Online learning uses delayed labels only. It must include:
 
 ## Rare-event controls
 
-Because ±10% within one hour is rare:
+Because ±2% within one hour is rare:
 
 - overall accuracy is not a promotion metric;
 - event clusters must be counted independently;

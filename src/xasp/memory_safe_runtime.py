@@ -17,6 +17,7 @@ from .feature_registry import SCHEMA_VERSION as FEATURE_SCHEMA_VERSION
 from .features import join_anchors_with_features
 from .first_touch_v4 import FIRST_TOUCH_GATE_VERSION, train_first_touch_v4
 from .horizons import DAILY_FINALIZED_HORIZON_ROWS, RESEARCH_HORIZON_SET_VERSION
+from .target_definition import TARGET_DEFINITION_VERSION
 
 
 class MemorySafeExtendedHorizonPlatform(ExtendedHorizonRealDataPlatform):
@@ -117,7 +118,7 @@ class MemorySafeExtendedHorizonPlatform(ExtendedHorizonRealDataPlatform):
             )
             return False
 
-        version = f"real-logistic-independent-horizons-{int(time.time())}"
+        version = f"real-logistic-2pct-independent-horizons-{int(time.time())}"
         bundle: dict[str, Any] = {
             "model_version": version,
             "trained_at_ms": int(time.time() * 1000),
@@ -125,6 +126,7 @@ class MemorySafeExtendedHorizonPlatform(ExtendedHorizonRealDataPlatform):
             "feature_schema_version": FEATURE_SCHEMA_VERSION,
             "gate_methodology_version": FIRST_TOUCH_GATE_VERSION,
             "horizon_set_version": RESEARCH_HORIZON_SET_VERSION,
+            "target_definition_version": TARGET_DEFINITION_VERSION,
             "configured_horizons": list(HORIZONS),
             "available_horizons": sorted(models),
             "promoted_horizons_this_run": promoted_horizons,

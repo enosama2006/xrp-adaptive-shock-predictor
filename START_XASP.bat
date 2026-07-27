@@ -42,6 +42,12 @@ if not defined XASP_BOOTSTRAP_START_MS (
 )
 if not defined XASP_BOOTSTRAP_START_MS goto :error
 
+echo.
+echo [XASP] Activating governed +2%% / -2%% target definition...
+echo [XASP] Raw Binance price history is preserved; stale labels, models, and predictions are invalidated.
+"%PYTHON%" -m xasp.target_definition --data-dir data --models-dir models --reports-dir reports
+if errorlevel 1 goto :verification_error
+
 if /I "%XASP_EXPAND_HISTORY%"=="1" (
     echo.
     echo [XASP] Expanding observed history toward %XASP_BOOTSTRAP_START_MS%...
@@ -56,7 +62,7 @@ echo [XASP] Auditing existing observed price files...
 if errorlevel 1 goto :verification_error
 
 echo.
-echo [XASP] Discovering empirical +10%% / -10%% passage windows through 14 days...
+echo [XASP] Discovering empirical +2%% / -2%% passage windows through 14 days...
 echo [XASP] Hourly anchors reduce overlap; touch times remain minute-precise.
 "%PYTHON%" -m xasp.first_passage_discovery --root data\prices --legacy data\prices.parquet --output reports\first_passage_discovery.json >nul
 if errorlevel 1 goto :verification_error

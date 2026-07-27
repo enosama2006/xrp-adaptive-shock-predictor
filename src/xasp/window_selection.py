@@ -47,8 +47,8 @@ def select_candidate_windows(
         }
     horizons = sorted(int(value) for value in raw_horizons)
     barrier = discovery.get("barrier_time_statistics", {})
-    up_stats = barrier.get("UP_10", {}) if isinstance(barrier, dict) else {}
-    down_stats = barrier.get("DOWN_10", {}) if isinstance(barrier, dict) else {}
+    up_stats = barrier.get("UP_02", {}) if isinstance(barrier, dict) else {}
+    down_stats = barrier.get("DOWN_02", {}) if isinstance(barrier, dict) else {}
 
     quantile_candidates: set[int] = set()
     for key in QUANTILE_KEYS:
@@ -65,8 +65,8 @@ def select_candidate_windows(
         row = raw_horizons.get(str(horizon), {})
         if not isinstance(row, dict):
             continue
-        upper_events = int(row.get("upper_10_reached_count", 0))
-        lower_events = int(row.get("lower_10_reached_count", 0))
+        upper_events = int(row.get("upper_02_reached_count", 0))
+        lower_events = int(row.get("lower_02_reached_count", 0))
         upper_clusters = int(row.get("upper_independent_clusters", 0))
         lower_clusters = int(row.get("lower_independent_clusters", 0))
         touch_rate = float(row.get("any_10pct_touch_rate", 0.0))

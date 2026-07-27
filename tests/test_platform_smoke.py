@@ -15,6 +15,7 @@ from xasp.platform_api import create_app
 from xasp.platform_runtime import RuntimeConfig, RuntimePaths
 from xasp.platform_runtime_v2 import RealDataPlatformV2
 from xasp.prediction_ledger import PredictionRecord
+from xasp.target_definition import TARGET_DEFINITION_VERSION
 
 
 def _paths(tmp_path: Path) -> RuntimePaths:
@@ -70,9 +71,15 @@ def test_platform_wires_routes_without_network_or_market_fabrication(tmp_path: P
 
     horizon_payload = _endpoint(app, "/api/horizons")()
     assert horizon_payload["horizons_minutes"] == list(RESEARCH_HORIZONS_MINUTES)
+    assert horizon_payload["target_definition_version"] == TARGET_DEFINITION_VERSION
+    assert horizon_payload["target_up_return"] == 0.02
+    assert horizon_payload["target_down_return"] == -0.02
     assert horizon_payload["independent_gates"] is True
     assert horizon_payload["trading_promoted"] is False
     assert platform.price_store.stats().max_timestamp_ms is None
+    catalog = _endpoint(app, "/api/models")()
+    assert catalog["first_touch_02"]["target_up_return"] == 0.02
+    assert catalog["adaptive_shock"]["target_up_return"] == 0.02
 
 
 def test_second_server_cannot_use_the_same_data_directory(
@@ -111,8 +118,8 @@ def test_invalidated_first_touch_rows_are_hidden_from_public_ledger(tmp_path: Pa
                 model_version="invalidated-model",
                 dataset_id="test",
                 feature_schema_version="test",
-                p_up_10=0.0,
-                p_down_10=0.0,
+                p_up_02=0.0,
+                p_down_02=0.0,
                 p_no_event=1.0,
             )
         ]
@@ -133,7 +140,7 @@ def test_first_touch_endpoints_do_not_read_ledger_without_a_model(tmp_path: Path
         assert _endpoint(app, "/api/models/first-touch/latest")() == []
 
 
-def test_first_touch_report_marks_legacy_gate_output_as_stale(tmp_path: Path) -> None:
+def test_first_touch_report_removes_legacy_target_output(tmp_path: Path) -> None:
     paths = _paths(tmp_path)
     paths.reports.parent.mkdir(parents=True, exist_ok=True)
     paths.reports.write_text(
@@ -154,10 +161,11 @@ def test_first_touch_report_marks_legacy_gate_output_as_stale(tmp_path: Path) ->
 
     payload = _endpoint(app, "/api/reports/training/first-touch")()
 
-    assert payload["_meta"]["status"] == "STALE"
+    assert payload["_meta"]["status"] == "WAIT"
     assert payload["_meta"]["is_current"] is False
     assert payload["_meta"]["report_gate_methodology_versions"] == []
     assert payload["_meta"]["configured_horizons"] == list(RESEARCH_HORIZONS_MINUTES)
+    assert not paths.reports.exists()
 
 
 def test_windows_launcher_is_pinned_to_requested_port() -> None:
@@ -167,3 +175,4 @@ def test_windows_launcher_is_pinned_to_requested_port() -> None:
     assert "compileall" in launcher
     assert "xasp.platform_api" in launcher
     assert "xasp.first_passage_discovery" in launcher
+    assert "xasp.target_definition" in launcher

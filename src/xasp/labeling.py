@@ -4,10 +4,12 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import StrEnum
 
+from .target_definition import TARGET_DOWN_RETURN, TARGET_UP_RETURN
+
 
 class BarrierLabel(StrEnum):
-    UP_10 = "UP_10"
-    DOWN_10 = "DOWN_10"
+    UP_02 = "UP_02"
+    DOWN_02 = "DOWN_02"
     NO_EVENT = "NO_EVENT"
     AMBIGUOUS = "AMBIGUOUS"
     INCOMPLETE = "INCOMPLETE"
@@ -15,8 +17,8 @@ class BarrierLabel(StrEnum):
 
 @dataclass(frozen=True)
 class BarrierConfig:
-    upper_return: float = 0.10
-    lower_return: float = -0.10
+    upper_return: float = TARGET_UP_RETURN
+    lower_return: float = TARGET_DOWN_RETURN
     horizon_ms: int = 60 * 60 * 1000
 
     def __post_init__(self) -> None:
@@ -157,7 +159,7 @@ def label_first_touch(
             )
         if upper_hits:
             return _result(
-                label=BarrierLabel.UP_10,
+                label=BarrierLabel.UP_02,
                 anchor=anchor,
                 horizon_end=horizon_end,
                 touch_timestamp_ms=timestamp_ms,
@@ -168,7 +170,7 @@ def label_first_touch(
             )
         if lower_hits:
             return _result(
-                label=BarrierLabel.DOWN_10,
+                label=BarrierLabel.DOWN_02,
                 anchor=anchor,
                 horizon_end=horizon_end,
                 touch_timestamp_ms=timestamp_ms,
@@ -263,7 +265,7 @@ def label_first_touch_candles(
             )
         if upper_hit:
             return _result(
-                label=BarrierLabel.UP_10,
+                label=BarrierLabel.UP_02,
                 anchor=anchor,
                 horizon_end=horizon_end,
                 touch_timestamp_ms=candle.timestamp_ms,
@@ -274,7 +276,7 @@ def label_first_touch_candles(
             )
         if lower_hit:
             return _result(
-                label=BarrierLabel.DOWN_10,
+                label=BarrierLabel.DOWN_02,
                 anchor=anchor,
                 horizon_end=horizon_end,
                 touch_timestamp_ms=candle.timestamp_ms,

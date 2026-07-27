@@ -1,7 +1,7 @@
 """Extended-horizon Model B runtime with independent per-horizon promotion.
 
 Each horizon is trained, gated, versioned, and served independently. A valid
-8-hour model can therefore operate while a rare 15-minute ±10% model remains
+8-hour model can therefore operate while a rare 15-minute ±2% model remains
 WAIT. No missing horizon is filled with fabricated probabilities.
 """
 
@@ -27,9 +27,10 @@ from .partitioned_horizon_store import HorizonStoreStats
 from .pipeline import IncrementalResearchPipeline, PipelineConfig, PipelinePaths
 from .platform_runtime import RealDataPlatform, RuntimeConfig, RuntimePaths
 from .prediction_ledger import PredictionRecord
+from .target_definition import TARGET_DEFINITION_VERSION
 
 HORIZONS = RESEARCH_HORIZONS_MINUTES
-LABELS = ("UP_10", "DOWN_10", "NO_EVENT")
+LABELS = ("UP_02", "DOWN_02", "NO_EVENT")
 ANCHOR_REBUILD_CHUNK_ROWS = 10_000
 
 
@@ -43,6 +44,8 @@ def _valid_bundle(bundle: Any) -> bool:
     if bundle.get("gate_methodology_version") != FIRST_TOUCH_GATE_VERSION:
         return False
     if bundle.get("horizon_set_version") != RESEARCH_HORIZON_SET_VERSION:
+        return False
+    if bundle.get("target_definition_version") != TARGET_DEFINITION_VERSION:
         return False
     keys = _bundle_model_keys(bundle)
     return bool(keys) and keys.issubset(set(HORIZONS))
@@ -219,7 +222,7 @@ class ExtendedHorizonRealDataPlatform(RealDataPlatform):
             )
             return False
 
-        version = f"real-logistic-independent-horizons-{int(time.time())}"
+        version = f"real-logistic-2pct-independent-horizons-{int(time.time())}"
         bundle = {
             "model_version": version,
             "trained_at_ms": int(time.time() * 1000),
@@ -227,6 +230,7 @@ class ExtendedHorizonRealDataPlatform(RealDataPlatform):
             "feature_schema_version": FEATURE_SCHEMA_VERSION,
             "gate_methodology_version": FIRST_TOUCH_GATE_VERSION,
             "horizon_set_version": RESEARCH_HORIZON_SET_VERSION,
+            "target_definition_version": TARGET_DEFINITION_VERSION,
             "configured_horizons": list(HORIZONS),
             "available_horizons": sorted(models),
             "promoted_horizons_this_run": promoted_horizons,
@@ -308,12 +312,15 @@ class ExtendedHorizonRealDataPlatform(RealDataPlatform):
                 anchor_price=anchor_price,
                 horizon_minutes=horizon,
                 model_version=str(self._bundle["model_version"]),
-                dataset_id=f"real-partitioned-{RESEARCH_HORIZON_SET_VERSION}",
+                dataset_id=(
+                    f"real-partitioned-{RESEARCH_HORIZON_SET_VERSION}-"
+                    f"{TARGET_DEFINITION_VERSION}"
+                ),
                 feature_schema_version=str(
                     self._bundle.get("feature_schema_version", FEATURE_SCHEMA_VERSION)
                 ),
-                p_up_10=mapped["UP_10"],
-                p_down_10=mapped["DOWN_10"],
+                p_up_02=mapped["UP_02"],
+                p_down_02=mapped["DOWN_02"],
                 p_no_event=mapped["NO_EVENT"],
                 decision="WAIT",
                 decision_reason="research_model_not_promoted_for_trading",

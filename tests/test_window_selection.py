@@ -7,13 +7,13 @@ def test_window_selection_uses_passage_quantiles_and_independent_evidence() -> N
     discovery = {
         "status": "READY",
         "barrier_time_statistics": {
-            "UP_10": {
+            "UP_02": {
                 "median_minutes": 500,
                 "p75_minutes": 1_100,
                 "p90_minutes": 3_000,
                 "p95_minutes": 8_000,
             },
-            "DOWN_10": {
+            "DOWN_02": {
                 "median_minutes": 700,
                 "p75_minutes": 1_500,
                 "p90_minutes": 4_000,
@@ -22,36 +22,36 @@ def test_window_selection_uses_passage_quantiles_and_independent_evidence() -> N
         },
         "horizons": {
             "480": {
-                "upper_10_reached_count": 20,
-                "lower_10_reached_count": 25,
+                "upper_02_reached_count": 20,
+                "lower_02_reached_count": 25,
                 "upper_independent_clusters": 5,
                 "lower_independent_clusters": 6,
                 "any_10pct_touch_rate": 0.004,
             },
             "720": {
-                "upper_10_reached_count": 40,
-                "lower_10_reached_count": 45,
+                "upper_02_reached_count": 40,
+                "lower_02_reached_count": 45,
                 "upper_independent_clusters": 12,
                 "lower_independent_clusters": 11,
                 "any_10pct_touch_rate": 0.008,
             },
             "1440": {
-                "upper_10_reached_count": 80,
-                "lower_10_reached_count": 90,
+                "upper_02_reached_count": 80,
+                "lower_02_reached_count": 90,
                 "upper_independent_clusters": 18,
                 "lower_independent_clusters": 20,
                 "any_10pct_touch_rate": 0.02,
             },
             "4320": {
-                "upper_10_reached_count": 200,
-                "lower_10_reached_count": 220,
+                "upper_02_reached_count": 200,
+                "lower_02_reached_count": 220,
                 "upper_independent_clusters": 30,
                 "lower_independent_clusters": 32,
                 "any_10pct_touch_rate": 0.08,
             },
             "10080": {
-                "upper_10_reached_count": 400,
-                "lower_10_reached_count": 440,
+                "upper_02_reached_count": 400,
+                "lower_02_reached_count": 440,
                 "upper_independent_clusters": 50,
                 "lower_independent_clusters": 55,
                 "any_10pct_touch_rate": 0.2,

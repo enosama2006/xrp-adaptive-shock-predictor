@@ -212,7 +212,7 @@ def summarize_event_support(
     folds: list[WalkForwardFold],
     *,
     label_column: str = "label",
-    event_labels: tuple[str, ...] = ("UP_10", "DOWN_10"),
+    event_labels: tuple[str, ...] = ("UP_02", "DOWN_02"),
     cluster_separation_ms: int = 60_000,
     event_time_column: str = "touch_timestamp_ms",
 ) -> list[dict[str, Any]]:
@@ -264,7 +264,7 @@ def audit_directional_support_gate(
     minimum_eligible_folds: int = 2,
     cluster_separation_ms: int = 60_000,
     label_column: str = "label",
-    event_labels: tuple[str, ...] = ("UP_10", "DOWN_10"),
+    event_labels: tuple[str, ...] = ("UP_02", "DOWN_02"),
     event_time_column: str = "touch_timestamp_ms",
 ) -> dict[str, Any]:
     """Fail closed unless multiple untouched periods contain independent events.

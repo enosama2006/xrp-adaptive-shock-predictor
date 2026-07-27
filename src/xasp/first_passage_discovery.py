@@ -1,4 +1,4 @@
-"""Empirical discovery of XRP ±10% first-passage windows.
+"""Empirical discovery of XRP ±2% first-passage windows.
 
 This module is deliberately separate from Model B training. It studies observed
 completed candles first, measures exact minute-level barrier passage times from
@@ -22,9 +22,14 @@ import pandas as pd
 from numpy.lib.stride_tricks import sliding_window_view
 
 from .price_store import PartitionedPriceStore, PriceStoreStats
+from .target_definition import (
+    TARGET_DEFINITION_VERSION,
+    TARGET_PERCENT,
+    TARGET_UP_RETURN,
+)
 
 MINUTE_MS = 60_000
-DISCOVERY_SCHEMA_VERSION = 1
+DISCOVERY_SCHEMA_VERSION = 2
 DEFAULT_DISCOVERY_HORIZONS_MINUTES = (
     15,
     30,
@@ -46,7 +51,7 @@ DEFAULT_DISCOVERY_HORIZONS_MINUTES = (
 @dataclass(frozen=True, slots=True)
 class DiscoveryConfig:
     horizons_minutes: tuple[int, ...] = DEFAULT_DISCOVERY_HORIZONS_MINUTES
-    threshold_return: float = 0.10
+    threshold_return: float = TARGET_UP_RETURN
     anchor_stride_minutes: int = 60
     volatility_window_minutes: int = 1_440
     batch_rows: int = 128
@@ -438,10 +443,10 @@ def build_first_passage_discovery(
 
         horizons[str(horizon)] = {
             "sample_rows": int(valid_indices.size),
-            "upper_10_reached_count": int(upper_reached.sum()),
-            "lower_10_reached_count": int(lower_reached.sum()),
-            "upper_10_reached_rate": float(upper_reached.mean()),
-            "lower_10_reached_rate": float(lower_reached.mean()),
+            "upper_02_reached_count": int(upper_reached.sum()),
+            "lower_02_reached_count": int(lower_reached.sum()),
+            "upper_02_reached_rate": float(upper_reached.mean()),
+            "lower_02_reached_rate": float(lower_reached.mean()),
             "up_first_count": int(up_first.sum()),
             "down_first_count": int(down_first.sum()),
             "ambiguous_same_minute_count": int(ambiguous.sum()),
@@ -470,6 +475,7 @@ def build_first_passage_discovery(
         "generated_at_ms": int(time.time() * 1000),
         "source": "observed_completed_xrpusdt_one_minute_candles_only",
         "threshold_return": config.threshold_return,
+        "target_definition_version": TARGET_DEFINITION_VERSION,
         "anchor_stride_minutes": config.anchor_stride_minutes,
         "max_horizon_minutes": max_horizon,
         "sampled_anchor_count": int(anchor_indices.size),
@@ -483,24 +489,24 @@ def build_first_passage_discovery(
         },
         "return_distribution": _return_distribution_diagnostics(closes),
         "barrier_time_statistics": {
-            "UP_10": _time_statistics(
+            "UP_02": _time_statistics(
                 upper_steps,
                 max_horizon_minutes=max_horizon,
                 valid_anchor_count=int(valid_indices.size),
             ),
-            "DOWN_10": _time_statistics(
+            "DOWN_02": _time_statistics(
                 lower_steps,
                 max_horizon_minutes=max_horizon,
                 valid_anchor_count=int(valid_indices.size),
             ),
         },
         "first_touch_outcome_statistics": {
-            "UP_10_FIRST": _time_statistics(
+            "UP_02_FIRST": _time_statistics(
                 up_first_steps,
                 max_horizon_minutes=max_horizon,
                 valid_anchor_count=int(valid_indices.size),
             ),
-            "DOWN_10_FIRST": _time_statistics(
+            "DOWN_02_FIRST": _time_statistics(
                 down_first_steps,
                 max_horizon_minutes=max_horizon,
                 valid_anchor_count=int(valid_indices.size),
@@ -563,7 +569,7 @@ def generate_discovery_report(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Discover empirical XRP ±10% first-passage windows"
+        description=f"Discover empirical XRP ±{TARGET_PERCENT}% first-passage windows"
     )
     parser.add_argument("--root", type=Path, default=Path("data/prices"))
     parser.add_argument("--legacy", type=Path, default=Path("data/prices.parquet"))

@@ -1,6 +1,6 @@
 """Future-excursion models trained only on observed market outcomes.
 
-Model B answers which ±10% barrier is reached first. Model A estimates observed
+Model B answers which ±2% barrier is reached first. Model A estimates observed
 future upside/downside excursions for each horizon using candle highs/lows.
 """
 
@@ -15,6 +15,8 @@ from sklearn.ensemble import HistGradientBoostingRegressor
 from sklearn.impute import SimpleImputer
 from sklearn.metrics import mean_absolute_error, mean_pinball_loss
 from sklearn.pipeline import Pipeline
+
+from .target_definition import TARGET_DEFINITION_VERSION, TARGET_DOWN_RETURN, TARGET_UP_RETURN
 
 HORIZONS = (15, 30, 45, 60)
 QUANTILES = (0.05, 0.50, 0.95)
@@ -137,12 +139,10 @@ def build_future_envelope_targets(
                     "future_min_return": min_price / float(anchor_price) - 1.0,
                     "minutes_to_max": max_offset,
                     "minutes_to_min": min_offset,
-                    "hit_up_02": max_price >= float(anchor_price) * 1.02,
-                    "hit_up_05": max_price >= float(anchor_price) * 1.05,
-                    "hit_up_10": max_price >= float(anchor_price) * 1.10,
-                    "hit_down_02": min_price <= float(anchor_price) * 0.98,
-                    "hit_down_05": min_price <= float(anchor_price) * 0.95,
-                    "hit_down_10": min_price <= float(anchor_price) * 0.90,
+                    "hit_up_02": max_price
+                    >= float(anchor_price) * (1.0 + TARGET_UP_RETURN),
+                    "hit_down_02": min_price
+                    <= float(anchor_price) * (1.0 + TARGET_DOWN_RETURN),
                     "status": "FINAL",
                 }
             )
@@ -290,7 +290,24 @@ def train_future_envelope(
         )
 
     models: dict[str, Pipeline] = {}
-    metrics: dict[str, Any] = {"split_audit": split_audit}
+    metrics: dict[str, Any] = {
+        "split_audit": split_audit,
+        "target_definition_version": TARGET_DEFINITION_VERSION,
+        "target_up_return": TARGET_UP_RETURN,
+        "target_down_return": TARGET_DOWN_RETURN,
+        "target_up_observed_rate": float(
+            usable.get(
+                "hit_up_02",
+                usable["future_max_return"] >= TARGET_UP_RETURN,
+            ).mean()
+        ),
+        "target_down_observed_rate": float(
+            usable.get(
+                "hit_down_02",
+                usable["future_min_return"] <= TARGET_DOWN_RETURN,
+            ).mean()
+        ),
+    }
     all_covered = True
     for target in ("future_max_return", "future_min_return"):
         target_models: dict[float, Pipeline] = {}

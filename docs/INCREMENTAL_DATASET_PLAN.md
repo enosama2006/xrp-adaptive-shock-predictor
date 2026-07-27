@@ -31,8 +31,8 @@ For every anchor price `p0` at time `t0`, persist:
 - `max_price_30m`, `min_price_30m`
 - `max_price_45m`, `min_price_45m`
 - `max_price_60m`, `min_price_60m`
-- `upper_barrier = p0 * 1.10`
-- `lower_barrier = p0 * 0.90`
+- `upper_barrier = p0 * 1.02`
+- `lower_barrier = p0 * 0.98`
 - `upper_first_hit_ts`
 - `lower_first_hit_ts`
 - `first_touch_side`
@@ -43,7 +43,7 @@ For every anchor price `p0` at time `t0`, persist:
 - `path_complete`
 - `label_status = PENDING | FINAL | AMBIGUOUS | INCOMPLETE`
 
-The maximum and minimum prices are useful diagnostics, but the supervised target is **which 10% barrier was touched first**, not merely which extreme was larger.
+The maximum and minimum prices are useful diagnostics, but the supervised target is **which 2% barrier was touched first**, not merely which extreme was larger.
 
 ## Incremental lifecycle
 
@@ -124,7 +124,7 @@ The system may start collecting and displaying data immediately, but must remain
 Initial research thresholds:
 
 - baseline training: at least 100,000 anchor rows and sufficient class representation;
-- any directional research claim: at least 100 finalized `UP_10` and 100 finalized `DOWN_10` events across multiple periods;
+- any directional research claim: at least 100 finalized `UP_02` and 100 finalized `DOWN_02` events across multiple periods;
 - user-facing trade signal consideration: at least 500 evaluated independent event clusters plus passed paper-trading gates.
 
 These are governance thresholds, not guarantees of statistical adequacy. The final sample requirement must be derived from observed event prevalence and confidence intervals.

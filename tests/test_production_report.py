@@ -10,18 +10,18 @@ def test_production_report_uses_only_matured_observed_predictions() -> None:
         [
             {
                 "status": "FINAL",
-                "actual_label": "UP_10",
+                "actual_label": "UP_02",
                 "horizon_minutes": 15,
-                "p_up_10": 0.90,
-                "p_down_10": 0.05,
+                "p_up_02": 0.90,
+                "p_down_02": 0.05,
                 "p_no_event": 0.05,
             },
             {
                 "status": "PENDING",
                 "actual_label": None,
                 "horizon_minutes": 15,
-                "p_up_10": 0.99,
-                "p_down_10": 0.005,
+                "p_up_02": 0.99,
+                "p_down_02": 0.005,
                 "p_no_event": 0.005,
             },
         ]
@@ -71,8 +71,8 @@ def test_high_confidence_no_event_does_not_count_as_directional_evidence() -> No
                 "status": "FINAL",
                 "actual_label": "NO_EVENT",
                 "horizon_minutes": 15,
-                "p_up_10": 0.0001,
-                "p_down_10": 0.0001,
+                "p_up_02": 0.0001,
+                "p_down_02": 0.0001,
                 "p_no_event": 0.9998,
             }
         ]
