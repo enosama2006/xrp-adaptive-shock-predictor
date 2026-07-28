@@ -55,6 +55,45 @@ def test_release_retries_transient_windows_unlink_failure(
     assert not path.exists()
 
 
+def test_lock_inspection_retries_transient_windows_read_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "runtime.lock"
+    path.write_text(
+        json.dumps(
+            {
+                "pid": os.getpid(),
+                "token": "no-longer-active",
+                "created_at_ns": 1,
+            }
+        ),
+        encoding="utf-8",
+    )
+    original_read_bytes = Path.read_bytes
+    attempts = 0
+
+    def flaky_read_bytes(target: Path) -> bytes:
+        nonlocal attempts
+        if target == path and attempts == 0:
+            attempts += 1
+            raise PermissionError("simulated transient Windows lock")
+        return original_read_bytes(target)
+
+    monkeypatch.setattr(Path, "read_bytes", flaky_read_bytes)
+    lock = InterProcessFileLock(
+        path,
+        timeout_s=0.1,
+        poll_interval_s=0.001,
+    )
+
+    lock.acquire()
+    lock.release()
+
+    assert attempts == 1
+    assert not path.exists()
+
+
 def test_orphaned_lock_from_current_process_is_recovered(tmp_path: Path) -> None:
     path = tmp_path / "runtime.lock"
     path.write_text(
