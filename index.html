@@ -3,9 +3,10 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <meta name="description" content="XASP — توقع اتجاه أول وصول إلى +2% أو −2% خلال الساعات القادمة." />
-  <title>XASP — Hourly ±2% Direction Forecast</title>
+  <meta name="description" content="XASP — مسار XRP السعري المتوقع ساعةً بساعة مع أول وصول إلى ±2%." />
+  <title>XASP — 8-Hour XRP Price Path Forecast</title>
   <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="timeline.css" />
   <link rel="stylesheet" href="/api/lab.css" />
 </head>
 <body>
@@ -13,8 +14,8 @@
     <header class="hero">
       <div>
         <p class="eyebrow">XRP ADAPTIVE SHOCK PREDICTOR</p>
-        <h1>هل يصل XRP إلى +2% أم −2% أولًا؟</h1>
-        <p class="subtitle">قرار اتجاهي واحد للساعات الثماني القادمة، مبني على خمس سنوات مطلوبة من شموع الدقيقة الحقيقية، مع سعر الهدف واحتمال الاتجاه وتوقيت الوصول المرجح.</p>
+        <h1>كيف يُرجّح أن يتحرك XRP خلال الساعات الثماني القادمة؟</h1>
+        <p class="subtitle">مسار سعري ساعي مع نطاق عدم يقين، وأول وصول متسق إلى +2% أو −2%، واحتمال الاتجاه ونافذة الوصول المرجحة.</p>
         <a class="hero-lab-link" href="/api/model-lab">فتح مختبر النماذج والتحليل ←</a>
       </div>
       <div class="connection-card">
@@ -34,8 +35,8 @@
       <div class="decision-heading">
         <div>
           <span class="section-kicker">التوقع الرئيسي القابل للقراءة</span>
-          <h2 id="directionalTitle">قرار أول وصول إلى ±2% خلال الساعات القادمة</h2>
-          <p id="directionalExplanation">بانتظار أول توقع صالح من نموذج الوصول الساعي.</p>
+          <h2 id="directionalTitle">مسار XRP المتوقع خلال 8 ساعات</h2>
+          <p id="directionalExplanation">بانتظار أول مسار سعري صالح من النموذج الساعي.</p>
         </div>
         <strong id="directionalDecision" class="decision-wait">WAIT</strong>
       </div>
@@ -44,17 +45,31 @@
         <div><span>هدف LONG (+2%)</span><strong id="decisionUpTarget" class="positive">—</strong></div>
         <div><span>هدف SHORT (−2%)</span><strong id="decisionDownTarget" class="negative">—</strong></div>
         <div><span>السعر المرجح المستهدف</span><strong id="decisionPredictedPrice">—</strong></div>
+        <div><span>إغلاق الساعة 8 المرجح</span><strong id="decisionClose8h">—</strong></div>
+        <div><span>أعلى سعر مرجح خلال 8 ساعات</span><strong id="decisionHigh8h" class="positive">—</strong></div>
+        <div><span>أدنى سعر مرجح خلال 8 ساعات</span><strong id="decisionLow8h" class="negative">—</strong></div>
         <div><span>ثقة الاتجاه عند حدوث لمس</span><strong id="decisionConfidence">—</strong></div>
         <div><span>احتمال حدوث ±2%</span><strong id="decisionEventProbability">—</strong></div>
         <div><span>نافذة الوصول الأرجح</span><strong id="decisionTouchWindow">—</strong></div>
         <div><span>المرجع الزمني</span><strong id="decisionTimestamp">—</strong></div>
       </div>
       <article class="decision-timeline">
-        <h3>التنبؤ التراكمي ساعةً بساعة</h3>
+        <h3>التايم لاين السعري ساعةً بساعة</h3>
+        <div class="price-path-chart" role="img" aria-label="مخطط مسار سعر XRP المتوقع خلال ثماني ساعات">
+          <svg id="pricePathChart" viewBox="0 0 960 320" preserveAspectRatio="none">
+            <text x="480" y="165" text-anchor="middle" class="chart-empty">لا يوجد مسار سعري صالح بعد</text>
+          </svg>
+          <div class="chart-legend">
+            <span><i class="legend-line"></i>السعر الوسطي المتوقع</span>
+            <span><i class="legend-band"></i>نطاق Q05–Q95</span>
+            <span><i class="legend-up"></i>هدف +2%</span>
+            <span><i class="legend-down"></i>هدف −2%</span>
+          </div>
+        </div>
         <div class="table-wrap">
           <table>
-            <thead><tr><th>بحلول</th><th>+2% أولًا</th><th>−2% أولًا</th><th>لا لمس</th><th>الميل</th><th>أعلى سعر Q50</th><th>أدنى سعر Q50</th></tr></thead>
-            <tbody id="directionalTimelineBody"><tr><td colspan="7" class="empty">لا يوجد توقع صالح بعد</td></tr></tbody>
+            <thead><tr><th>الوقت</th><th>إغلاق Q05</th><th>الإغلاق المرجح Q50</th><th>إغلاق Q95</th><th>+2% أولًا</th><th>−2% أولًا</th><th>الميل</th><th>أعلى/أدنى متوقع</th></tr></thead>
+            <tbody id="directionalTimelineBody"><tr><td colspan="8" class="empty">لا يوجد توقع صالح بعد</td></tr></tbody>
           </table>
         </div>
       </article>

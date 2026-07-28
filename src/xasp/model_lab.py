@@ -17,9 +17,12 @@ from typing import Any, cast
 import numpy as np
 import pandas as pd
 
+from .competing_risk import (
+    COMPETING_RISK_GATE_VERSION,
+    predict_hourly_competing_risks,
+)
 from .feature_registry import SCHEMA_VERSION as FEATURE_SCHEMA_VERSION
 from .feature_registry import audit_feature_columns
-from .first_touch_v4 import FIRST_TOUCH_GATE_VERSION
 from .future_envelope import predict_envelope
 from .horizons import RESEARCH_HORIZON_SET_VERSION, RESEARCH_HORIZONS_MINUTES
 from .platform_runtime_v2 import RealDataPlatformV2
@@ -54,6 +57,8 @@ def _optional_float(value: Any) -> float | None:
 def _bundle_horizons(bundle: dict[str, Any] | None) -> list[int]:
     if bundle is None:
         return []
+    if bundle.get("joint_model") is not None:
+        return sorted(int(value) for value in bundle.get("available_horizons", ()))
     raw = bundle.get("models", {})
     if not isinstance(raw, dict):
         return []
@@ -82,7 +87,11 @@ def _model_a_algorithm() -> dict[str, Any]:
     return {
         "family": "Gradient-boosted decision trees for quantile regression",
         "estimator": "sklearn.ensemble.HistGradientBoostingRegressor",
-        "targets": ["future_max_return", "future_min_return"],
+        "targets": [
+            "future_max_return",
+            "future_min_return",
+            "future_close_return",
+        ],
         "governed_upside_objective": TARGET_UP_RETURN,
         "target_definition_version": TARGET_DEFINITION_VERSION,
         "quantiles": [0.05, 0.50, 0.95],
@@ -115,7 +124,11 @@ def _model_b_algorithm() -> dict[str, Any]:
     return {
         "family": "Calibrated balanced multinomial logistic classification",
         "estimator": "sklearn.linear_model.LogisticRegression",
-        "classes": ["UP_02", "DOWN_02", "NO_EVENT"],
+        "classes": [
+            "UP_H1..UP_H8",
+            "DOWN_H1..DOWN_H8",
+            "NO_EVENT",
+        ],
         "target_definition_version": TARGET_DEFINITION_VERSION,
         "upper_barrier_return": TARGET_UP_RETURN,
         "lower_barrier_return": TARGET_DOWN_RETURN,
@@ -132,12 +145,19 @@ def _model_b_algorithm() -> dict[str, Any]:
             "calibration_method": "sigmoid",
         },
         "validation": {
-            "method": "Fresh-fit purged walk-forward folds plus final untouched temporal test",
-            "event_support": "Both UP_02 and DOWN_02 need independent event clusters",
-            "confidence_threshold": 0.85,
-            "required_directional_precision": 0.85,
-            "no_event_rule": "NO_EVENT accuracy cannot pass the directional gate",
-            "gate_methodology_version": FIRST_TOUCH_GATE_VERSION,
+            "method": (
+                "One joint event-time model with chronological train/calibration/"
+                "untouched-test and an eight-hour purge/embargo"
+            ),
+            "coherence": (
+                "Hourly cumulative probabilities are sums from one categorical "
+                "distribution and therefore cannot move backward"
+            ),
+            "decision_policy": (
+                "Threshold selected on validation support/precision and verified "
+                "unchanged on untouched test"
+            ),
+            "gate_methodology_version": COMPETING_RISK_GATE_VERSION,
         },
         "importance_note": (
             "The calibrated wrapper does not expose one directly comparable coefficient vector. "
@@ -396,7 +416,11 @@ class ModelLabService:
                 "horizon_minutes": horizon_minutes,
                 "persisted": False,
             }
-        model = _model_for_horizon(bundle, horizon_minutes)
+        model = (
+            bundle.get("joint_model")
+            if model_key == MODEL_B_KEY
+            else _model_for_horizon(bundle, horizon_minutes)
+        )
         if model is None:
             return {
                 "status": "WAIT",
@@ -449,6 +473,13 @@ class ModelLabService:
                     estimates["future_min_return_q95"],
                 ]
             )
+            close = sorted(
+                [
+                    estimates["future_close_return_q05"],
+                    estimates["future_close_return_q50"],
+                    estimates["future_close_return_q95"],
+                ]
+            )
             output: dict[str, Any] = {
                 "max_return_q05": maximum[0],
                 "max_return_q50": maximum[1],
@@ -456,30 +487,38 @@ class ModelLabService:
                 "min_return_q05": minimum[0],
                 "min_return_q50": minimum[1],
                 "min_return_q95": minimum[2],
+                "close_return_q05": close[0],
+                "close_return_q50": close[1],
+                "close_return_q95": close[2],
                 "max_price_q50": effective_anchor * (1.0 + maximum[1]),
                 "min_price_q50": effective_anchor * (1.0 + minimum[1]),
+                "close_price_q05": effective_anchor * (1.0 + close[0]),
+                "close_price_q50": effective_anchor * (1.0 + close[1]),
+                "close_price_q95": effective_anchor * (1.0 + close[2]),
                 "target_up_return": TARGET_UP_RETURN,
                 "target_up_price": effective_anchor * (1.0 + TARGET_UP_RETURN),
                 "target_up_reached_by_median": maximum[1] >= TARGET_UP_RETURN,
                 "target_up_reached_by_upper_bound": maximum[2] >= TARGET_UP_RETURN,
             }
         else:
-            probabilities = np.asarray(model.predict_proba(row)[0], dtype=float)
-            classes = [str(value) for value in model.classes_]
-            mapped = {label: 0.0 for label in ("UP_02", "DOWN_02", "NO_EVENT")}
-            for index, label in enumerate(classes):
-                if label in mapped:
-                    mapped[label] = float(probabilities[index])
-            total = sum(mapped.values())
-            if total <= 0:
-                return {"status": "WAIT", "reason": "model_returned_no_probability_mass"}
-            mapped = {key: value / total for key, value in mapped.items()}
+            timeline = predict_hourly_competing_risks(model, row)
+            projection = next(
+                item
+                for item in timeline
+                if int(item["horizon_minutes"]) == horizon_minutes
+            )
+            mapped = {
+                "UP_02": float(projection["p_up_02"]),
+                "DOWN_02": float(projection["p_down_02"]),
+                "NO_EVENT": float(projection["p_no_event"]),
+            }
             output = {
                 "p_up_02": mapped["UP_02"],
                 "p_down_02": mapped["DOWN_02"],
                 "p_no_event": mapped["NO_EVENT"],
                 "highest_probability_class": max(mapped, key=mapped.__getitem__),
                 "highest_probability": max(mapped.values()),
+                "hourly_timeline": timeline,
             }
 
         return {

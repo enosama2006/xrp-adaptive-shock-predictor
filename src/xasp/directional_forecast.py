@@ -1,9 +1,9 @@
-"""Human-readable cumulative ±2% directional forecast.
+"""Human-readable eight-hour XRP price path and ±2% first-touch forecast.
 
-The trained first-touch models remain the source of probability estimates.
-This module turns their hourly outputs into one auditable LONG/SHORT/WAIT
-summary without inventing a price target: the predicted target is one of the
-two governed barriers around the observed anchor price.
+The close-price quantile models provide the hourly path. One joint competing-
+risk model provides the coherent direction/arrival distribution. This module
+combines those outputs without overriding the empirically governed decision
+stored in the prediction ledger.
 """
 
 from __future__ import annotations
@@ -13,9 +13,6 @@ from typing import Any
 
 from .horizons import RESEARCH_HORIZONS_MINUTES
 from .target_definition import TARGET_DOWN_RETURN, TARGET_UP_RETURN
-
-MIN_EVENT_PROBABILITY = 0.20
-MIN_CONDITIONAL_DIRECTION_CONFIDENCE = 0.55
 
 
 def _finite_float(value: Any) -> float | None:
@@ -122,8 +119,9 @@ def build_directional_forecast(
         "down_target_price": lower_price,
         "configured_horizons_minutes": list(RESEARCH_HORIZONS_MINUTES),
         "forecast_semantics": (
-            "For every historical anchor, inspect each later one-minute candle and "
-            "record whether +2% or -2% was touched first by each hourly deadline."
+            "Predict Q05/Q50/Q95 close prices at exact hourly boundaries and derive "
+            "coherent cumulative +2%/-2% first-touch probabilities from one joint "
+            "event-direction/time distribution."
         ),
         "training_basis": {
             "requested_history_days": 1825,
@@ -131,12 +129,14 @@ def build_directional_forecast(
             "label_path_resolution": "one_minute_high_low_first_touch",
             "causal_feature_families": [
                 "returns_and_momentum",
+                "multi_scale_context_through_8_hours",
                 "realized_volatility_and_jump_score",
                 "RSI",
                 "ATR_percent",
                 "Bollinger_position_and_bandwidth",
                 "volume_and_quote_volume",
                 "trade_intensity_and_taker_buy_flow",
+                "UTC_intraday_and_weekday_cycle",
                 "near_price_order_book_only_when_historically_available",
             ],
             "explicitly_not_used_without_point_in_time_history": [
@@ -154,6 +154,11 @@ def build_directional_forecast(
             "directional_bias": None,
             "decision_reason": "no_valid_hourly_first_touch_prediction",
             "predicted_target_price": None,
+            "predicted_close_price_8h_q05": None,
+            "predicted_close_price_8h_q50": None,
+            "predicted_close_price_8h_q95": None,
+            "predicted_high_price_8h_q50": None,
+            "predicted_low_price_8h_q50": None,
             "directional_probability": None,
             "event_probability": None,
             "no_event_probability": None,
@@ -204,6 +209,15 @@ def build_directional_forecast(
                 "predicted_low_price_q50": _finite_float(
                     shock.get("min_price_q50")
                 ),
+                "predicted_close_price_q05": _finite_float(
+                    shock.get("close_price_q05")
+                ),
+                "predicted_close_price_q50": _finite_float(
+                    shock.get("close_price_q50")
+                ),
+                "predicted_close_price_q95": _finite_float(
+                    shock.get("close_price_q95")
+                ),
             }
         )
 
@@ -222,17 +236,21 @@ def build_directional_forecast(
         bias = "SHORT"
         directional_probability = down / event_probability if event_probability else 0.5
 
-    decision = bias
-    reason = "directional_2pct_first_touch_edge"
+    governed_decision = str(touch[-1].get("decision", "WAIT"))
+    decision = (
+        governed_decision
+        if governed_decision in {"LONG", "SHORT", "WAIT"}
+        else "WAIT"
+    )
+    reason = str(
+        touch[-1].get(
+            "decision_reason",
+            "joint_forecast_available_advisory_gate_wait",
+        )
+    )
     if bias == "NEUTRAL":
         decision = "WAIT"
         reason = "directional_probabilities_tied"
-    elif event_probability < MIN_EVENT_PROBABILITY:
-        decision = "WAIT"
-        reason = "2pct_touch_probability_too_low_within_available_hours"
-    elif directional_probability < MIN_CONDITIONAL_DIRECTION_CONFIDENCE:
-        decision = "WAIT"
-        reason = "directional_edge_too_small"
 
     probability_key = (
         "p_up_first_by_horizon" if bias == "LONG" else "p_down_first_by_horizon"
@@ -252,6 +270,11 @@ def build_directional_forecast(
         "predicted_target_price": (
             upper_price if bias == "LONG" else lower_price if bias == "SHORT" else None
         ),
+        "predicted_close_price_8h_q05": selected["predicted_close_price_q05"],
+        "predicted_close_price_8h_q50": selected["predicted_close_price_q50"],
+        "predicted_close_price_8h_q95": selected["predicted_close_price_q95"],
+        "predicted_high_price_8h_q50": selected["predicted_high_price_q50"],
+        "predicted_low_price_8h_q50": selected["predicted_low_price_q50"],
         "directional_probability": directional_probability,
         "unconditional_up_probability": up,
         "unconditional_down_probability": down,
@@ -260,18 +283,26 @@ def build_directional_forecast(
         "expected_touch_horizon_minutes": expected_horizon,
         "timeline": timeline,
         "independent_horizon_monotonicity_warning_count": monotonicity_warnings,
-        "confidence_thresholds": {
-            "minimum_event_probability": MIN_EVENT_PROBABILITY,
-            "minimum_conditional_direction_confidence": (
-                MIN_CONDITIONAL_DIRECTION_CONFIDENCE
-            ),
+        "probability_coherence": (
+            "PASS"
+            if monotonicity_warnings == 0
+            else "LEGACY_INDEPENDENT_HORIZON_WARNING"
+        ),
+        "price_path_available": any(
+            row["predicted_close_price_q50"] is not None for row in timeline
+        ),
+        "price_path_semantics": (
+            "Q05/Q50/Q95 are predicted closing prices at each exact hourly "
+            "boundary; predicted high/low are intrahorizon excursions."
+        ),
+        "decision_scope": "research_advisory_not_order_execution",
+        "decision_policy": {
+            "source": "validation_selected_then_verified_on_untouched_test",
+            "applied_result": decision,
+            "applied_reason": reason,
         },
         "promoted_for_trading": False,
     }
 
 
-__all__ = [
-    "MIN_CONDITIONAL_DIRECTION_CONFIDENCE",
-    "MIN_EVENT_PROBABILITY",
-    "build_directional_forecast",
-]
+__all__ = ["build_directional_forecast"]

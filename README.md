@@ -2,16 +2,19 @@
 
 ## Governed target
 
-XASP 1.9.0 presents one readable forecast built from two validated components:
+XASP 2.0.0 presents one readable eight-hour price path built from two
+scientifically separated components:
 
-- the primary question is whether XRP touches `+2%` or `-2%` first;
-- horizons are cumulative hourly deadlines from one through eight hours;
+- Model A predicts the XRP closing-price distribution at the end of every hour,
+  plus the maximum upside and downside excursion inside that hour;
+- Model B fits one joint competing-risk distribution over
+  `UP_H1..UP_H8`, `DOWN_H1..DOWN_H8`, and `NO_EVENT`;
+- hourly `+2%`/`-2%` first-touch probabilities are cumulative projections of
+  that one distribution and therefore cannot contradict one another;
 - sub-hour 15/30/45-minute targets and interface outputs are removed;
-- the main response is `LONG`, `SHORT`, or `WAIT`, together with both barrier
-  prices, directional probability, event probability, and the most likely
-  hourly arrival window;
-- Model B supplies first-touch direction probabilities while Model A supplies
-  the expected high/low price range for explanation.
+- the main response is an eight-point price timeline with Q05/Q50/Q95 bands,
+  both barrier prices, directional probability, event probability, most likely
+  arrival hour, and a governed `LONG`, `SHORT`, or `WAIT` research signal.
 
 On the first startup after this target change, XASP preserves raw observed
 Binance candles and invalidates old target-derived anchors, models, reports,
@@ -28,6 +31,8 @@ XASP is a research-first, continuously evaluated XRP forecasting platform built 
 For each prediction timestamp and each cumulative hourly horizon from one
 through eight hours, Model A estimates:
 
+- the likely closing price at the end of the hour;
+- a Q05/Q50/Q95 uncertainty band for that hourly close;
 - the likely maximum upside excursion;
 - the likely maximum downside excursion;
 - uncertainty bands for both excursions;
@@ -36,15 +41,19 @@ through eight hours, Model A estimates:
 
 Model A is not a renamed copy of Model B. It has its own targets, fitted models, model version, report, prediction store, and acceptance criteria.
 
-### Model B — ±2% First-Touch Predictor
+### Model B — Joint ±2% First-Touch Time Predictor
 
-**Technical form:** calibrated multiclass first-touch classification.
+**Technical form:** calibrated multiclass competing-risk event-time classification.
 
-At every eligible timestamp, Model B estimates whether XRP will:
+At every eligible timestamp, Model B estimates one probability distribution over:
 
-- touch `+2%` first (`UP_02`);
-- touch `-2%` first (`DOWN_02`);
-- touch neither barrier within the selected horizon (`NO_EVENT`).
+- touch `+2%` first in hour 1 through hour 8 (`UP_H1..UP_H8`);
+- touch `-2%` first in hour 1 through hour 8 (`DOWN_H1..DOWN_H8`);
+- touch neither barrier within eight hours (`NO_EVENT`).
+
+The user-facing cumulative probability at each hourly deadline is derived by
+summing the relevant earlier event-time classes. It is not produced by eight
+unrelated classifiers.
 
 When both barriers occur inside the same minute candle and their true order cannot be proven, the label is `AMBIGUOUS` and is excluded from supervised training and production scoring. Missing or incomplete future paths are also excluded.
 
@@ -131,7 +140,8 @@ Required protections:
 3. Overlapping horizons require purge and embargo.
 4. A final chronological test period remains untouched until model selection is complete.
 5. `NO_EVENT` class dominance means overall accuracy is not an acceptance metric.
-6. Model B reports class-wise precision/recall, PR-AUC, Brier score, calibration, and high-confidence empirical precision.
+6. Model B reports multiclass log loss, Brier score, calibration, directional
+   policy support/precision, and comparison with the historical class-prior baseline.
 7. Model A reports interval coverage, quantile ordering, excursion error, and stability by horizon.
 8. Metrics are reported by horizon, market regime, liquidity state, and independent event cluster.
 9. Every forecast is written before its outcome is known and evaluated only after maturity.
@@ -144,7 +154,8 @@ The dashboard must visibly separate Model A and Model B. Each section shows only
 - status and explicit `WAIT` reason;
 - model version and training time;
 - data range and sample size;
-- one primary directional decision plus an hourly cumulative timeline;
+- one primary directional decision plus an hourly price-path chart and a
+  coherent cumulative first-touch timeline;
 - uncertainty and quality gate;
 - production accuracy/coverage report;
 - prediction history and matured outcomes.
@@ -162,8 +173,13 @@ The repository now contains:
 - near-price order-book features whose model pressure cannot be flipped by far-away walls;
 - independent model artifacts, APIs, dashboard sections, and evidence gates.
 
-These changes are part of an active refactor and still require a clean local/CI verification run and a reproducible real 365-day benchmark.
+The 2.0.0 refactor passes the repository's complete local test, lint, type,
+compile, and JavaScript checks. CI and a reproducible benchmark on the user's
+full five-year stored history remain required before any operational claim.
 
-The project is **not yet a validated trading system**. Critical remaining work includes checkpointed visible bootstrap progress, independent Model A production maturation/reporting, restart-safe live order-book collection with sequence validation, historical BTC/ETH and derivatives joins, drift-governed champion/challenger promotion and rollback, economic simulation, and paper-trading evidence.
+The project is **not yet a validated trading system**. Critical remaining work
+includes restart-safe live order-book collection with sequence validation,
+historical BTC/ETH and derivatives joins, drift-governed champion/challenger
+promotion and rollback, economic simulation, and paper-trading evidence.
 
 The official action remains `WAIT` until the relevant model passes all documented gates. No live order execution is implemented.

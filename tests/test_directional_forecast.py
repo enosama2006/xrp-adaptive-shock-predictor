@@ -10,6 +10,9 @@ def _row(
     up: float,
     down: float,
     no_event: float,
+    *,
+    decision: str = "WAIT",
+    decision_reason: str = "joint_forecast_available_advisory_gate_wait",
 ) -> dict[str, object]:
     return {
         "anchor_timestamp_ms": 1_000,
@@ -18,6 +21,8 @@ def _row(
         "p_up_02": up,
         "p_down_02": down,
         "p_no_event": no_event,
+        "decision": decision,
+        "decision_reason": decision_reason,
     }
 
 
@@ -46,6 +51,8 @@ def test_forecast_returns_one_long_decision_and_hourly_timeline() -> None:
         _row(420, 0.60, 0.16, 0.24),
         _row(480, 0.62, 0.17, 0.21),
     ]
+    touch[-1]["decision"] = "LONG"
+    touch[-1]["decision_reason"] = "validated_joint_competing_risk_signal"
     envelope = [
         {
             "anchor_timestamp_ms": 1_000,
@@ -83,4 +90,4 @@ def test_forecast_waits_when_directional_edge_is_too_small() -> None:
 
     assert payload["directional_bias"] == "LONG"
     assert payload["decision"] == "WAIT"
-    assert payload["decision_reason"] == "directional_edge_too_small"
+    assert payload["decision_reason"] == "joint_forecast_available_advisory_gate_wait"

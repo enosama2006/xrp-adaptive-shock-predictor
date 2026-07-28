@@ -45,7 +45,7 @@ def test_platform_wires_routes_without_network_or_market_fabrication(tmp_path: P
     route_paths = set(app.openapi()["paths"])
 
     assert platform.status.state == "WAIT"
-    assert platform.status.reason == "both_model_independent_horizon_gates_pending"
+    assert platform.status.reason == "joint_direction_and_price_path_models_pending"
     assert platform.envelope.paths.targets == tmp_path / "data" / "future_envelopes.parquet"
     assert platform.envelope.paths.model == tmp_path / "models" / "envelope_champion.joblib"
     assert platform.envelope.paths.report == tmp_path / "reports" / "envelope_training.json"
@@ -75,7 +75,9 @@ def test_platform_wires_routes_without_network_or_market_fabrication(tmp_path: P
     assert horizon_payload["target_definition_version"] == TARGET_DEFINITION_VERSION
     assert horizon_payload["target_up_return"] == 0.02
     assert horizon_payload["target_down_return"] == -0.02
-    assert horizon_payload["independent_gates"] is True
+    assert horizon_payload["independent_gates"] is False
+    assert horizon_payload["joint_competing_risk_model"] is True
+    assert horizon_payload["price_path_points"] == 8
     assert horizon_payload["trading_promoted"] is False
     assert platform.price_store.stats().max_timestamp_ms is None
     catalog = _endpoint(app, "/api/models")()
@@ -179,6 +181,6 @@ def test_windows_launcher_is_pinned_to_requested_port() -> None:
     assert "compileall" in launcher
     assert "xasp.platform_api" in launcher
     assert "xasp.first_passage_discovery" in launcher
-    assert "xasp.target_definition" in launcher
+    assert "from xasp.target_definition import main; main()" in launcher
     assert 'XASP_HISTORY_DAYS set "XASP_HISTORY_DAYS=1825"' in launcher
     assert 'XASP_EXPAND_HISTORY set "XASP_EXPAND_HISTORY=1"' in launcher

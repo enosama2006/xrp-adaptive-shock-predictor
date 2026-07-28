@@ -1,6 +1,6 @@
 # XASP — Refactor & Production-Readiness Checklist
 
-Updated: 2026-07-23
+Updated: 2026-07-28
 
 Status legend:
 
@@ -15,23 +15,25 @@ Nothing is complete merely because a file or dashboard box exists.
 
 ## G0 — Freeze the product contract
 
-- [x] Define Model A as independent future-excursion / adaptive-shock magnitude forecasting.
-- [x] Define Model B as independent ±2% first-touch classification.
+- [x] Define Model A as hourly close-price path plus independent
+  future-excursion / adaptive-shock magnitude forecasting.
+- [x] Define Model B as one joint ±2% direction-and-arrival-hour
+  competing-risk classification.
 - [x] Separate the two models in the dashboard and API names.
 - [x] Document that both models share data/features only, not targets, artifacts, reports, or readiness.
 - [x] Preserve `WAIT` as the official action until evidence gates pass.
 - [x] Prohibit fabricated market rows, labels, order books, probabilities, and fills.
-- [ ] Add a formal decision log for every methodology change.
+- [x] Add a formal goal-alignment audit for the v2 methodology change.
 
 ## G1 — Historical and live data lifecycle
 
 - [-] Backfill 1,825 days of `XRPUSDT` one-minute completed candles by default.
-- [ ] Normalize Binance close timestamps to exact completed-candle availability boundaries.
-- [ ] Migrate legacy local timestamps ending in `59,999` safely and idempotently.
-- [ ] Persist backfill in restart-safe pages/chunks rather than only after full materialization.
-- [ ] Expose bootstrap progress and retry/failure state through API and UI.
+- [x] Normalize Binance close timestamps to exact completed-candle availability boundaries.
+- [x] Migrate legacy local timestamps ending in `59,999` or `59,000` safely and idempotently.
+- [x] Persist backfill in restart-safe pages/chunks rather than only after full materialization.
+- [x] Expose bootstrap progress and retry/failure state through API and UI.
 - [-] Resume only the missing tail with overlap and deduplication.
-- [ ] Preserve quote volume, trade count, taker-buy base, and taker-buy quote.
+- [x] Preserve quote volume, trade count, taker-buy base, and taker-buy quote.
 - [ ] Add historical BTCUSDT and ETHUSDT minute context.
 - [ ] Join funding, OI, mark/index/basis, and liquidation streams by availability time.
 - [ ] Produce manifests, hashes, gap reports, and source coverage reports.
@@ -55,17 +57,17 @@ Nothing is complete merely because a file or dashboard box exists.
 - [x] rolling price z-score and robust return z-score.
 - [x] `log1p(volume)` and rolling volume normalization.
 - [x] feature histograms, quantiles, skewness, IQR, and missingness diagnostics.
-- [ ] quote-volume normalization.
-- [ ] taker-buy ratio and signed-volume proxy.
-- [ ] trade intensity and average trade size.
+- [x] quote-volume normalization.
+- [x] taker-buy ratio and signed-volume proxy.
+- [x] trade intensity and average trade size.
 - [ ] volatility-of-volatility, VWAP distance, breakout strength, and trend consistency.
 
 ### Explicit feature registry
 
-- [-] Replace implicit "all numeric columns" selection with a fail-closed registry.
+- [x] Replace implicit "all numeric columns" selection with a fail-closed registry.
 - [ ] Record formula, source, lookback, availability, missing policy, scaling, and model eligibility.
-- [ ] Unknown numeric columns excluded by default and listed in diagnostics.
-- [ ] Add source-availability masks and missingness indicators.
+- [x] Unknown numeric columns excluded by default and listed in diagnostics.
+- [x] Add source-availability masks and missingness indicators.
 - [ ] Add offline/live feature parity tests.
 
 ### Order-book and supply/demand rules
@@ -97,11 +99,13 @@ Nothing is complete merely because a file or dashboard box exists.
 
 - [x] Define `UP_02`, `DOWN_02`, `NO_EVENT`, `AMBIGUOUS`, and `INCOMPLETE`.
 - [x] Create cumulative 60/120/180/240/300/360/420/480-minute anchors.
-- [ ] Use candle high/low for barrier touches instead of close-only points.
-- [ ] Mark same-candle dual hit as `AMBIGUOUS` unless finer ordering is available.
-- [ ] Require contiguous minute coverage across the full label horizon.
-- [ ] Use OHLC-aware maturation for the production prediction ledger.
-- [ ] Record exact label methodology version in every dataset/model/prediction.
+- [x] Collapse the eight-hour outcome to one coherent
+  `UP_H1..UP_H8` / `DOWN_H1..DOWN_H8` / `NO_EVENT` target.
+- [x] Use candle high/low for barrier touches instead of close-only points.
+- [x] Mark same-candle dual hit as `AMBIGUOUS` unless finer ordering is available.
+- [x] Require contiguous minute coverage across the full label horizon.
+- [x] Use OHLC-aware maturation for the production prediction ledger.
+- [x] Record exact label methodology version in every dataset/model/prediction.
 - [ ] Add replay and chunk-boundary invariance tests.
 
 ### G3 acceptance
@@ -115,6 +119,8 @@ Nothing is complete merely because a file or dashboard box exists.
 ## G4 — Model A target correctness
 
 - [x] Use observed high for future maximum and observed low for future minimum.
+- [x] Record the observed close and close return at every exact hourly boundary.
+- [x] Train Q05/Q50/Q95 hourly close-path models and expose a rendered timeline.
 - [x] Create independent targets and model artifact path.
 - [x] Train horizon-specific quantile models.
 - [ ] Require and report contiguous path coverage explicitly.
@@ -127,10 +133,11 @@ Nothing is complete merely because a file or dashboard box exists.
 ## G5 — Temporal validation
 
 - [x] Implement purge/embargo helper primitives.
-- [ ] Integrate purge/embargo into Model A trainer.
-- [ ] Integrate purge/embargo into Model B train/calibration/test split.
+- [x] Integrate purge/embargo into Model A trainer.
+- [x] Integrate an eight-hour purge/embargo into Model B
+  train/calibration/test split.
 - [ ] Add rolling walk-forward folds.
-- [ ] Preserve a final untouched chronological test period.
+- [x] Preserve a final untouched chronological test period.
 - [ ] Add independent event-cluster evaluation.
 - [ ] Add blocked-bootstrap confidence intervals.
 - [ ] Run ablations by feature family.

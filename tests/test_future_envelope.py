@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from xasp.future_envelope import (
     EnvelopeConfig,
     build_future_envelope_targets,
+    predict_envelope,
     train_future_envelope,
 )
 
@@ -27,6 +29,7 @@ def test_targets_capture_intrahorizon_close_extremes_when_ohlc_absent() -> None:
     row = targets.iloc[0]
     assert np.isclose(row["future_max_return"], 0.11)
     assert np.isclose(row["future_min_return"], -0.06)
+    assert np.isclose(row["future_close_return"], 0.0)
     assert int(row["minutes_to_max"]) == 3
     assert int(row["minutes_to_min"]) == 7
     assert bool(row["hit_up_02"])
@@ -69,3 +72,30 @@ def test_training_waits_without_real_sample_size() -> None:
     assert models is None
     assert report.status == "WAIT"
     assert report.reason == "insufficient_real_rows"
+
+
+class _FixedQuantile:
+    def __init__(self, value: float) -> None:
+        self.value = value
+
+    def predict(self, _: pd.DataFrame) -> np.ndarray:
+        return np.asarray([self.value])
+
+
+def test_prediction_orders_and_conformalizes_hourly_close_path() -> None:
+    models: dict[str, object] = {}
+    for target in (
+        "future_max_return",
+        "future_min_return",
+        "future_close_return",
+    ):
+        models[f"{target}_q05"] = _FixedQuantile(0.02)
+        models[f"{target}_q50"] = _FixedQuantile(0.00)
+        models[f"{target}_q95"] = _FixedQuantile(0.01)
+        models[f"{target}_interval_expansion"] = 0.005
+
+    prediction = predict_envelope(models, pd.DataFrame([{"feature": 1.0}]))
+
+    assert prediction["future_close_return_q05"] == pytest.approx(-0.005)
+    assert prediction["future_close_return_q50"] == pytest.approx(0.01)
+    assert prediction["future_close_return_q95"] == pytest.approx(0.025)

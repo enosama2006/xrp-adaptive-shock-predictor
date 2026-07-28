@@ -13,7 +13,7 @@ from typing import Any
 
 import pandas as pd
 
-SCHEMA_VERSION = "market-features-v4-hourly-directional-indicators"
+SCHEMA_VERSION = "market-features-v5-eight-hour-price-path-context"
 
 # Exact model inputs whose semantics are scale-stable and point-in-time causal.
 _ALLOWED_EXACT = {
@@ -27,6 +27,10 @@ _ALLOWED_EXACT = {
     "signed_volume_ratio",
     "average_trade_size_log1p",
     "trade_intensity_log1p",
+    "utc_time_sin",
+    "utc_time_cos",
+    "utc_weekday_sin",
+    "utc_weekday_cos",
 }
 
 _ALLOWED_PREFIXES = (

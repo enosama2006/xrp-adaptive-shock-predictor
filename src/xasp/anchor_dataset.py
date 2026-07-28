@@ -34,8 +34,10 @@ ANCHOR_COLUMNS = [
     "lower_barrier_price",
     "max_price",
     "min_price",
+    "horizon_close_price",
     "max_return",
     "min_return",
+    "horizon_close_return",
     "label",
     "touch_timestamp_ms",
     "touch_price",
@@ -192,6 +194,7 @@ def _row_payload(
     lower_return: float,
     max_price: float | None,
     min_price: float | None,
+    horizon_close_price: float | None,
     label: BarrierLabel,
     touch_timestamp_ms: int | None,
     touch_price: float | None,
@@ -208,8 +211,14 @@ def _row_payload(
         "lower_barrier_price": anchor.price * (1 + lower_return),
         "max_price": max_price,
         "min_price": min_price,
+        "horizon_close_price": horizon_close_price,
         "max_return": None if max_price is None else (max_price / anchor.price) - 1,
         "min_return": None if min_price is None else (min_price / anchor.price) - 1,
+        "horizon_close_return": (
+            None
+            if horizon_close_price is None
+            else (horizon_close_price / anchor.price) - 1
+        ),
         "label": label.value,
         "touch_timestamp_ms": touch_timestamp_ms,
         "touch_price": touch_price,
@@ -231,6 +240,10 @@ def _build_row(
     path = [point for point in future if anchor.timestamp_ms < point.timestamp_ms <= horizon_end]
     max_price = max((point.price for point in path), default=None)
     min_price = min((point.price for point in path), default=None)
+    horizon_close_price = next(
+        (point.price for point in reversed(path) if point.timestamp_ms == horizon_end),
+        None,
+    )
 
     if latest_timestamp_ms < horizon_end:
         return _row_payload(
@@ -240,6 +253,7 @@ def _build_row(
             lower_return=lower_return,
             max_price=max_price,
             min_price=min_price,
+            horizon_close_price=None,
             label=BarrierLabel.INCOMPLETE,
             touch_timestamp_ms=None,
             touch_price=None,
@@ -263,6 +277,7 @@ def _build_row(
         lower_return=lower_return,
         max_price=max_price,
         min_price=min_price,
+        horizon_close_price=horizon_close_price,
         label=result.label,
         touch_timestamp_ms=result.touch_timestamp_ms,
         touch_price=result.touch_price,
@@ -285,6 +300,10 @@ def _build_candle_row(
     path = [candle for candle in future if anchor.timestamp_ms < candle.timestamp_ms <= horizon_end]
     max_price = max((candle.high for candle in path), default=None)
     min_price = min((candle.low for candle in path), default=None)
+    horizon_close_price = next(
+        (candle.close for candle in reversed(path) if candle.timestamp_ms == horizon_end),
+        None,
+    )
 
     if latest_timestamp_ms < horizon_end:
         return _row_payload(
@@ -294,6 +313,7 @@ def _build_candle_row(
             lower_return=lower_return,
             max_price=max_price,
             min_price=min_price,
+            horizon_close_price=None,
             label=BarrierLabel.INCOMPLETE,
             touch_timestamp_ms=None,
             touch_price=None,
@@ -318,6 +338,7 @@ def _build_candle_row(
         lower_return=lower_return,
         max_price=max_price,
         min_price=min_price,
+        horizon_close_price=horizon_close_price,
         label=result.label,
         touch_timestamp_ms=result.touch_timestamp_ms,
         touch_price=result.touch_price,

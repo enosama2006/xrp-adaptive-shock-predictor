@@ -87,6 +87,7 @@ def build_future_envelope_targets_fast(
             max_price = np.max(future_highs, axis=1)
             min_price = np.min(future_lows, axis=1)
             anchor_price = closes[chunk]
+            close_price = closes[chunk + steps]
 
             rows: dict[str, Any] = {
                 "anchor_timestamp_ms": timestamps[chunk],
@@ -95,8 +96,10 @@ def build_future_envelope_targets_fast(
                 "horizon_end_ms": timestamps[chunk] + horizon * MINUTE_MS,
                 "future_max_price": max_price,
                 "future_min_price": min_price,
+                "future_close_price": close_price,
                 "future_max_return": max_price / anchor_price - 1.0,
                 "future_min_return": min_price / anchor_price - 1.0,
+                "future_close_return": close_price / anchor_price - 1.0,
                 "minutes_to_max": max_offsets.astype(np.int16),
                 "minutes_to_min": min_offsets.astype(np.int16),
                 "hit_up_02": max_price >= anchor_price * (1.0 + TARGET_UP_RETURN),
