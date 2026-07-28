@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
-from xasp.price_store import PartitionedPriceStore
+from xasp.data_integrity import audit_price_store
+from xasp.price_store import (
+    LEGACY_PRICE_STORE_SCHEMA_VERSION,
+    PRICE_STORE_SCHEMA_VERSION,
+    PartitionedPriceStore,
+)
 
 
 def _timestamp(year: int, month: int, day: int, minute: int = 0) -> int:
@@ -81,3 +88,77 @@ def test_range_load_skips_unrelated_months(tmp_path: Path) -> None:
     loaded = store.load(start_ms=february, end_ms=february)
 
     assert loaded["timestamp_ms"].tolist() == [february]
+
+
+def test_legacy_close_times_are_repaired_once_without_losing_raw_backup(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "data" / "prices"
+    root.mkdir(parents=True)
+    january_close = _timestamp(2025, 2, 1) - 1
+    february_close = _timestamp(2025, 2, 1, 1) - 1
+    _frame([january_close]).to_parquet(root / "2025-01.parquet", index=False)
+    _frame([february_close]).to_parquet(root / "2025-02.parquet", index=False)
+    (root / "manifest.json").write_text(
+        json.dumps(
+            {
+                "schema_version": LEGACY_PRICE_STORE_SCHEMA_VERSION,
+                "migrated_from_legacy": True,
+            }
+        ),
+        encoding="utf-8",
+    )
+    store = PartitionedPriceStore(root)
+
+    store.ensure_ready()
+
+    backup = root.with_name("prices.before-canonical-v2")
+    assert backup.exists()
+    assert (backup / "2025-01.parquet").exists()
+    assert store.load()["timestamp_ms"].tolist() == [
+        _timestamp(2025, 2, 1),
+        _timestamp(2025, 2, 1, 1),
+    ]
+    manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["schema_version"] == PRICE_STORE_SCHEMA_VERSION
+    assert manifest["migrated_from_legacy"] is True
+    report = audit_price_store(root, minimum_coverage_ratio=1.0)
+    assert report.status == "PASS"
+    assert report.structural_valid is True
+
+    store.ensure_ready()
+
+    assert store.stats().total_rows == 2
+    assert len(list(tmp_path.glob("data/prices.before-canonical-v2*"))) == 1
+
+
+def test_unknown_timestamp_offsets_are_not_silently_repaired(tmp_path: Path) -> None:
+    root = tmp_path / "prices"
+    root.mkdir()
+    unsupported = _timestamp(2025, 1, 1) + 123
+    _frame([unsupported]).to_parquet(root / "2025-01.parquet", index=False)
+    original = (root / "2025-01.parquet").read_bytes()
+    store = PartitionedPriceStore(root)
+
+    with pytest.raises(ValueError, match="neither a minute boundary nor a Binance closeTime"):
+        store.ensure_ready()
+
+    assert (root / "2025-01.parquet").read_bytes() == original
+    assert not root.with_name("prices.before-canonical-v2").exists()
+
+
+def test_interrupted_directory_swap_finishes_from_valid_staging(tmp_path: Path) -> None:
+    root = tmp_path / "data" / "prices"
+    staging = root.with_name("prices.canonical-v2.tmp")
+    backup = root.with_name("prices.before-canonical-v2")
+    timestamp = _timestamp(2025, 1, 1)
+    PartitionedPriceStore(staging).append(_frame([timestamp]))
+    backup.mkdir(parents=True)
+
+    store = PartitionedPriceStore(root)
+    store.ensure_ready()
+
+    assert root.exists()
+    assert not staging.exists()
+    assert backup.exists()
+    assert store.load()["timestamp_ms"].tolist() == [timestamp]
