@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
+from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
 
+import pandas as pd
 import pytest
 
 from xasp.history_expansion import (
@@ -10,7 +13,7 @@ from xasp.history_expansion import (
     HistoryExpansionStateStore,
     expand_history,
 )
-from xasp.price_store import PartitionedPriceStore
+from xasp.price_store import LEGACY_PRICE_STORE_SCHEMA_VERSION, PartitionedPriceStore
 
 
 def _record(open_time_ms: int, price: float = 1.0) -> SimpleNamespace:
@@ -214,6 +217,47 @@ def test_non_aligned_target_is_rounded_to_next_completed_minute(tmp_path: Path) 
 
     assert result.target_start_ms == 2 * MINUTE_MS
     assert store.stats().min_timestamp_ms == 2 * MINUTE_MS
+
+
+def test_expansion_rebuilds_ambiguous_legacy_month_from_binance(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "data" / "prices"
+    root.mkdir(parents=True)
+    ambiguous = 1_679_661_588_301
+    pd.DataFrame(
+        {
+            "timestamp_ms": [ambiguous],
+            "price": [1.0],
+            "open": [1.0],
+            "high": [1.01],
+            "low": [0.99],
+            "volume": [100.0],
+        }
+    ).to_parquet(root / "2023-03.parquet", index=False)
+    (root / "manifest.json").write_text(
+        json.dumps({"schema_version": LEGACY_PRICE_STORE_SCHEMA_VERSION}),
+        encoding="utf-8",
+    )
+    month_start = int(datetime(2023, 3, 1, tzinfo=UTC).timestamp() * 1000)
+    next_month = int(datetime(2023, 4, 1, tzinfo=UTC).timestamp() * 1000)
+    client = RangeClient()
+
+    result = expand_history(
+        store=_store(tmp_path),
+        state_store=HistoryExpansionStateStore(tmp_path / "state.json"),
+        target_start_ms=month_start + MINUTE_MS,
+        client=client,
+    )
+
+    assert result.status == "READY"
+    assert result.reason == "requested_history_already_covered"
+    assert client.calls == [(month_start, next_month - MINUTE_MS)]
+    repaired = _store(tmp_path)
+    assert repaired.stats().total_rows == 44_640
+    assert repaired.stats().min_timestamp_ms == month_start + MINUTE_MS
+    assert repaired.stats().max_timestamp_ms == next_month
+    assert root.with_name("prices.before-canonical-v2").exists()
 
 
 def test_launchers_request_expansion_before_integrity_audit() -> None:

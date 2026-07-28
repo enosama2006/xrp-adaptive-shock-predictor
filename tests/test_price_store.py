@@ -177,6 +177,59 @@ def test_unknown_timestamp_offsets_are_not_silently_repaired(tmp_path: Path) -> 
     assert not root.with_name("prices.before-canonical-v2").exists()
 
 
+def test_ambiguous_legacy_month_is_rebuilt_authoritatively_and_preserved(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "data" / "prices"
+    root.mkdir(parents=True)
+    ambiguous = 1_679_661_588_301
+    authoritative = _timestamp(2023, 3, 24, 760)
+    next_month_boundary = _timestamp(2023, 4, 1)
+    _frame([ambiguous]).to_parquet(root / "2023-03.parquet", index=False)
+    (root / "manifest.json").write_text(
+        json.dumps({"schema_version": LEGACY_PRICE_STORE_SCHEMA_VERSION}),
+        encoding="utf-8",
+    )
+    requested: list[str] = []
+
+    def repair(month_key: str) -> pd.DataFrame:
+        requested.append(month_key)
+        return _frame([authoritative, next_month_boundary])
+
+    store = PartitionedPriceStore(root)
+    store.ensure_ready(partition_repair=repair)
+
+    assert requested == ["2023-03"]
+    assert store.load()["timestamp_ms"].tolist() == [
+        authoritative,
+        next_month_boundary,
+    ]
+    assert (root / "2023-04.parquet").exists()
+    backup = root.with_name("prices.before-canonical-v2")
+    assert backup.exists()
+    assert pd.read_parquet(backup / "2023-03.parquet")[
+        "timestamp_ms"
+    ].tolist() == [ambiguous]
+    manifest = json.loads((root / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["schema_version"] == PRICE_STORE_SCHEMA_VERSION
+
+
+def test_invalid_authoritative_repair_does_not_modify_source(tmp_path: Path) -> None:
+    root = tmp_path / "prices"
+    root.mkdir()
+    ambiguous = 1_679_661_588_301
+    _frame([ambiguous]).to_parquet(root / "2023-03.parquet", index=False)
+    original = (root / "2023-03.parquet").read_bytes()
+    store = PartitionedPriceStore(root)
+
+    with pytest.raises(ValueError, match="noncanonical timestamps"):
+        store.ensure_ready(partition_repair=lambda _: _frame([ambiguous]))
+
+    assert (root / "2023-03.parquet").read_bytes() == original
+    assert not root.with_name("prices.before-canonical-v2").exists()
+    assert not root.with_name("prices.canonical-v2.tmp").exists()
+
+
 def test_interrupted_directory_swap_finishes_from_valid_staging(tmp_path: Path) -> None:
     root = tmp_path / "data" / "prices"
     staging = root.with_name("prices.canonical-v2.tmp")

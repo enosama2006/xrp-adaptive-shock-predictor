@@ -20,7 +20,12 @@ from typing import Protocol
 import pandas as pd
 
 from .data.binance import BinanceDataClient
-from .price_store import PRICE_COLUMNS, PartitionedPriceStore, normalize_price_frame
+from .price_store import (
+    PRICE_COLUMNS,
+    NonCanonicalPriceTimestampsError,
+    PartitionedPriceStore,
+    normalize_price_frame,
+)
 
 MINUTE_MS = 60_000
 STATE_SCHEMA_VERSION = 1
@@ -151,6 +156,20 @@ def _normalize_completed_timestamp(value: int) -> int:
     return value + 1 if value % MINUTE_MS == MINUTE_MS - 1 else value
 
 
+def _month_open_bounds(month_key: str) -> tuple[int, int]:
+    """Return the first and last one-minute candle open time in a UTC month."""
+
+    try:
+        start = datetime.strptime(month_key, "%Y-%m").replace(tzinfo=UTC)
+    except ValueError as exc:
+        raise ValueError(f"invalid UTC price partition key: {month_key}") from exc
+    if start.month == 12:
+        following = datetime(start.year + 1, 1, 1, tzinfo=UTC)
+    else:
+        following = datetime(start.year, start.month + 1, 1, tzinfo=UTC)
+    return int(start.timestamp() * 1000), int(following.timestamp() * 1000) - MINUTE_MS
+
+
 ScalarValue = str | bytes | bytearray | int | float
 
 
@@ -212,6 +231,71 @@ def _records_to_prices(
     return normalize_price_frame(pd.DataFrame(rows, columns=PRICE_COLUMNS))
 
 
+def _fetch_authoritative_price_partition(
+    client: HistoricalKlineClient,
+    *,
+    symbol: str,
+    month_key: str,
+) -> pd.DataFrame:
+    """Rebuild one ambiguous legacy month from completed Binance one-minute klines."""
+
+    first_open, last_open = _month_open_bounds(month_key)
+    records = list(
+        client.iter_spot_klines(
+            symbol=symbol,
+            interval="1m",
+            start_time_ms=first_open,
+            end_time_ms=last_open,
+        )
+    )
+    repaired = _records_to_prices(
+        records,
+        target_start_ms=first_open + MINUTE_MS,
+        target_end_ms=last_open + MINUTE_MS,
+    )
+    expected_rows = ((last_open - first_open) // MINUTE_MS) + 1
+    minimum_rows = (expected_rows * 995 + 999) // 1000
+    if len(repaired) < minimum_rows:
+        raise ValueError(
+            "authoritative Binance partition repair is incomplete: "
+            f"month={month_key}, rows={len(repaired)}, expected_at_least={minimum_rows}"
+        )
+    print(
+        "[XASP] Rebuilt ambiguous legacy price partition from Binance: "
+        f"{month_key}.parquet rows={len(repaired):,}"
+    )
+    return repaired
+
+
+def _ensure_price_store_ready(
+    *,
+    store: PartitionedPriceStore,
+    client: HistoricalKlineClient | None,
+    symbol: str,
+) -> None:
+    """Run local migration first; use Binance only for ambiguous legacy months."""
+
+    try:
+        store.ensure_ready()
+        return
+    except NonCanonicalPriceTimestampsError:
+        pass
+
+    owns_client = client is None
+    repair_client: HistoricalKlineClient = client or BinanceDataClient()
+    try:
+        store.ensure_ready(
+            partition_repair=lambda month_key: _fetch_authoritative_price_partition(
+                repair_client,
+                symbol=symbol,
+                month_key=month_key,
+            )
+        )
+    finally:
+        if owns_client and isinstance(repair_client, BinanceDataClient):
+            repair_client.close()
+
+
 def _result(
     *,
     status: str,
@@ -261,7 +345,7 @@ def expand_history(
         raise ValueError("checkpoint_rows must be positive")
     symbol = symbol.upper()
     target_start = _ceil_minute(target_start_ms)
-    store.ensure_ready()
+    _ensure_price_store_ready(store=store, client=client, symbol=symbol)
     stats = store.stats()
     saved_state = state_store.load()
 
