@@ -23,12 +23,15 @@ class FakeClient:
     ):
         self.calls.append((start_time_ms, end_time_ms))
         minute = 60_000
-        first_close = ((start_time_ms + minute - 1) // minute) * minute
-        for timestamp in range(first_close, end_time_ms + 1, minute):
-            price = 1.0 if timestamp < 15 * minute else 1.11
+        first_open = (start_time_ms // minute) * minute
+        for open_time in range(first_open, end_time_ms + 1, minute):
+            close_time = open_time + minute - 1
+            price = 1.0 if open_time < 15 * minute else 1.11
             yield SimpleNamespace(
-                event_time_ms=timestamp,
+                event_time_ms=close_time,
                 payload={
+                    "open_time_ms": open_time,
+                    "close_time_ms": close_time,
                     "open": str(price),
                     "high": str(price),
                     "low": str(price),
@@ -54,8 +57,8 @@ def test_pipeline_resumes_missing_tail_without_full_rebuild(tmp_path: Path) -> N
     first = pipeline.run(20 * 60_000)
     second = pipeline.run(25 * 60_000)
 
-    assert first.total_price_rows == 21
-    assert second.total_price_rows == 26
+    assert first.total_price_rows == 20
+    assert second.total_price_rows == 25
     assert second.requested_start_ms > 0
     assert second.requested_start_ms < 20 * 60_000
     assert second.total_price_rows < first.total_price_rows + second.fetched_rows

@@ -199,8 +199,12 @@ def _time_statistics(
     }
 
 
-def _return_distribution_diagnostics(closes: np.ndarray) -> dict[str, Any]:
-    log_returns = np.diff(np.log(closes))
+def _return_distribution_diagnostics(
+    timestamps: np.ndarray,
+    closes: np.ndarray,
+) -> dict[str, Any]:
+    contiguous = np.diff(timestamps) == MINUTE_MS
+    log_returns = np.diff(np.log(closes))[contiguous]
     log_returns = log_returns[np.isfinite(log_returns)]
     if log_returns.size < 3:
         return {"status": "WAIT", "reason": "insufficient_returns"}
@@ -258,12 +262,14 @@ def _return_distribution_diagnostics(closes: np.ndarray) -> dict[str, Any]:
 
 
 def _regime_labels(
+    timestamps: np.ndarray,
     closes: np.ndarray,
     anchor_indices: np.ndarray,
     window_minutes: int,
 ) -> tuple[np.ndarray, dict[str, float]]:
     returns = np.full(closes.size, np.nan, dtype=np.float64)
-    returns[1:] = np.diff(np.log(closes))
+    contiguous = np.diff(timestamps) == MINUTE_MS
+    returns[1:] = np.where(contiguous, np.diff(np.log(closes)), np.nan)
     rolling = (
         pd.Series(returns)
         .rolling(window_minutes, min_periods=window_minutes)
@@ -405,6 +411,7 @@ def build_first_passage_discovery(
     )
 
     regime_labels, regime_thresholds = _regime_labels(
+        timestamps,
         closes,
         valid_indices,
         config.volatility_window_minutes,
@@ -487,7 +494,7 @@ def build_first_passage_discovery(
             "data_end_ms": int(timestamps[-1]),
             "latest_price": float(closes[-1]),
         },
-        "return_distribution": _return_distribution_diagnostics(closes),
+        "return_distribution": _return_distribution_diagnostics(timestamps, closes),
         "barrier_time_statistics": {
             "UP_02": _time_statistics(
                 upper_steps,

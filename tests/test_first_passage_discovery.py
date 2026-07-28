@@ -64,6 +64,17 @@ def test_discovery_reports_observed_passage_times_and_excursions() -> None:
     assert report["external_context_feature_status"]["xrp_market_cap"] == "NOT_COLLECTED"
 
 
+def test_discovery_return_distribution_excludes_gap_jump() -> None:
+    prices = _prices()
+    prices.loc[250:, "timestamp_ms"] += 80 * MINUTE_MS
+    prices.loc[250:, ["open", "price", "high", "low"]] *= 2.0
+
+    report = build_first_passage_discovery(prices, _config())
+
+    assert report["return_distribution"]["observations"] == len(prices) - 2
+    assert report["return_distribution"]["maximum_log_return"] < 0.2
+
+
 def test_discovery_report_cache_reuses_recent_matching_dataset(tmp_path: Path) -> None:
     store = PartitionedPriceStore(tmp_path / "prices")
     store.append(_prices())

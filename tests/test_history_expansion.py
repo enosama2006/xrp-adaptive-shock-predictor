@@ -21,6 +21,7 @@ def _record(open_time_ms: int, price: float = 1.0) -> SimpleNamespace:
     return SimpleNamespace(
         event_time_ms=close_time_ms,
         payload={
+            "open_time_ms": open_time_ms,
             "close_time_ms": close_time_ms,
             "open": str(price),
             "high": str(price + 0.01),
@@ -53,6 +54,33 @@ class RangeClient:
         first = ((start_time_ms + MINUTE_MS - 1) // MINUTE_MS) * MINUTE_MS
         for open_time in range(first, end_time_ms + 1, MINUTE_MS):
             yield _record(open_time, 1.0 + open_time / MINUTE_MS / 1000)
+
+
+class March2023MaintenanceClient(RangeClient):
+    early_candle_open_ms = 1_679_661_540_000
+    early_close_ms = 1_679_661_588_301
+    resumed_open_ms = 1_679_666_400_000
+
+    def iter_spot_klines(
+        self,
+        *,
+        symbol: str,
+        interval: str,
+        start_time_ms: int,
+        end_time_ms: int,
+        limit: int = 1000,
+    ):
+        del symbol, interval, limit
+        self.calls.append((start_time_ms, end_time_ms))
+        first = ((start_time_ms + MINUTE_MS - 1) // MINUTE_MS) * MINUTE_MS
+        for open_time in range(first, end_time_ms + 1, MINUTE_MS):
+            if self.early_candle_open_ms < open_time < self.resumed_open_ms:
+                continue
+            record = _record(open_time, 1.0 + open_time / MINUTE_MS / 1000)
+            if open_time == self.early_candle_open_ms:
+                record.event_time_ms = self.early_close_ms
+                record.payload["close_time_ms"] = self.early_close_ms
+            yield record
 
 
 class FailingClient(RangeClient):
@@ -241,7 +269,7 @@ def test_expansion_rebuilds_ambiguous_legacy_month_from_binance(
     )
     month_start = int(datetime(2023, 3, 1, tzinfo=UTC).timestamp() * 1000)
     next_month = int(datetime(2023, 4, 1, tzinfo=UTC).timestamp() * 1000)
-    client = RangeClient()
+    client = March2023MaintenanceClient()
 
     result = expand_history(
         store=_store(tmp_path),
@@ -254,9 +282,16 @@ def test_expansion_rebuilds_ambiguous_legacy_month_from_binance(
     assert result.reason == "requested_history_already_covered"
     assert client.calls == [(month_start, next_month - MINUTE_MS)]
     repaired = _store(tmp_path)
-    assert repaired.stats().total_rows == 44_640
+    assert repaired.stats().total_rows == 44_560
     assert repaired.stats().min_timestamp_ms == month_start + MINUTE_MS
     assert repaired.stats().max_timestamp_ms == next_month
+    timestamps = repaired.load()["timestamp_ms"]
+    early_availability = 1_679_661_600_000
+    assert early_availability in timestamps.values
+    early_index = int(timestamps[timestamps == early_availability].index[0])
+    assert int(timestamps.iloc[early_index + 1]) - early_availability == 81 * MINUTE_MS
+    expected_rows = int((timestamps.max() - timestamps.min()) // MINUTE_MS) + 1
+    assert expected_rows - len(timestamps) == 80
     assert root.with_name("prices.before-canonical-v2").exists()
 
 
