@@ -94,6 +94,65 @@ def test_lock_inspection_retries_transient_windows_read_failure(
     assert not path.exists()
 
 
+def test_lock_creation_retries_transient_windows_permission_failure(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "runtime.lock"
+    original_open = os.open
+    attempts = 0
+
+    def flaky_open(
+        path_arg: str | bytes | os.PathLike[str] | os.PathLike[bytes],
+        flags: int,
+        mode: int = 0o777,
+        *,
+        dir_fd: int | None = None,
+    ) -> int:
+        nonlocal attempts
+        if os.fspath(path_arg) == os.fspath(path) and attempts == 0:
+            attempts += 1
+            raise PermissionError("simulated transient Windows lock creation")
+        return original_open(path_arg, flags, mode, dir_fd=dir_fd)
+
+    monkeypatch.setattr(os, "open", flaky_open)
+    lock = InterProcessFileLock(
+        path,
+        timeout_s=0.1,
+        poll_interval_s=0.001,
+    )
+
+    lock.acquire()
+    lock.release()
+
+    assert attempts == 1
+    assert not path.exists()
+
+
+def test_lock_creation_permission_failure_respects_timeout(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = tmp_path / "runtime.lock"
+
+    def denied_open(
+        path_arg: str | bytes | os.PathLike[str] | os.PathLike[bytes],
+        flags: int,
+        mode: int = 0o777,
+        *,
+        dir_fd: int | None = None,
+    ) -> int:
+        raise PermissionError("simulated persistent Windows lock creation")
+
+    monkeypatch.setattr(os, "open", denied_open)
+    lock = InterProcessFileLock(path, timeout_s=0)
+
+    with pytest.raises(LockUnavailableError, match="another active process") as captured:
+        lock.acquire()
+
+    assert isinstance(captured.value.__cause__, PermissionError)
+
+
 def test_orphaned_lock_from_current_process_is_recovered(tmp_path: Path) -> None:
     path = tmp_path / "runtime.lock"
     path.write_text(

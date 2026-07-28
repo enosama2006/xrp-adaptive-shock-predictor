@@ -151,7 +151,7 @@ class InterProcessFileLock:
 
         while True:
             descriptor: int | None = None
-            creation_error: FileExistsError | None = None
+            creation_error: OSError | None = None
             with _ACTIVE_LOCKS_GUARD:
                 try:
                     descriptor = os.open(
@@ -159,7 +159,11 @@ class InterProcessFileLock:
                         os.O_CREAT | os.O_EXCL | os.O_WRONLY,
                         0o600,
                     )
-                except FileExistsError as exc:
+                except (FileExistsError, PermissionError) as exc:
+                    # On Windows, an existing lock that is being created or
+                    # removed concurrently can surface as PermissionError
+                    # instead of FileExistsError. Treat it as contention and
+                    # retry until the normal lock timeout expires.
                     creation_error = exc
                 else:
                     try:
@@ -171,7 +175,7 @@ class InterProcessFileLock:
                     return
 
             if creation_error is not None:
-                if self._break_stale_lock():
+                if isinstance(creation_error, FileExistsError) and self._break_stale_lock():
                     continue
                 if time.monotonic() >= deadline:
                     raise LockUnavailableError(
