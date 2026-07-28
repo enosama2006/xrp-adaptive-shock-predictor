@@ -101,6 +101,12 @@ class InterProcessFileLock:
             stat = self.path.stat()
         except FileNotFoundError:
             return True
+        except OSError:
+            # Windows can transiently deny access while another thread or
+            # process is creating or removing the lock file. Treat an
+            # unreadable lock as active and let acquire() retry instead of
+            # leaking PermissionError to callers such as FastAPI.
+            return False
 
         stale = False
         try:
