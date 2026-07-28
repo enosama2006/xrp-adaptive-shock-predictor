@@ -132,6 +132,36 @@ def test_legacy_close_times_are_repaired_once_without_losing_raw_backup(
     assert len(list(tmp_path.glob("data/prices.before-canonical-v2*"))) == 1
 
 
+def test_second_precision_legacy_close_times_are_repaired(tmp_path: Path) -> None:
+    root = tmp_path / "data" / "prices"
+    root.mkdir(parents=True)
+    month_boundary = _timestamp(2025, 2, 1)
+    january_close = month_boundary - 1_000
+    february_close = _timestamp(2025, 2, 1, 1) - 1_000
+    _frame([january_close]).to_parquet(root / "2025-01.parquet", index=False)
+    _frame([february_close]).to_parquet(root / "2025-02.parquet", index=False)
+    (root / "manifest.json").write_text(
+        json.dumps({"schema_version": LEGACY_PRICE_STORE_SCHEMA_VERSION}),
+        encoding="utf-8",
+    )
+    store = PartitionedPriceStore(root)
+
+    store.ensure_ready()
+
+    assert store.load()["timestamp_ms"].tolist() == [
+        month_boundary,
+        _timestamp(2025, 2, 1, 1),
+    ]
+    backup = root.with_name("prices.before-canonical-v2")
+    assert backup.exists()
+    assert pd.read_parquet(backup / "2025-01.parquet")[
+        "timestamp_ms"
+    ].tolist() == [january_close]
+    report = audit_price_store(root, minimum_coverage_ratio=1.0)
+    assert report.status == "PASS"
+    assert report.structural_valid is True
+
+
 def test_unknown_timestamp_offsets_are_not_silently_repaired(tmp_path: Path) -> None:
     root = tmp_path / "prices"
     root.mkdir()

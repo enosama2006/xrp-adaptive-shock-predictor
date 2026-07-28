@@ -26,6 +26,12 @@ OPTIONAL_PRICE_COLUMNS = [
 ]
 PRICE_COLUMNS = [*CORE_PRICE_COLUMNS, *OPTIONAL_PRICE_COLUMNS]
 MINUTE_MS = 60_000
+SECOND_PRECISION_CLOSE_RESIDUE_MS = 59_000
+MILLISECOND_PRECISION_CLOSE_RESIDUE_MS = MINUTE_MS - 1
+LEGACY_CLOSE_TIME_RESIDUES_MS = (
+    SECOND_PRECISION_CLOSE_RESIDUE_MS,
+    MILLISECOND_PRECISION_CLOSE_RESIDUE_MS,
+)
 LEGACY_PRICE_STORE_SCHEMA_VERSION = 1
 PRICE_STORE_SCHEMA_VERSION = 2
 
@@ -73,9 +79,12 @@ def normalize_price_frame(frame: pd.DataFrame) -> pd.DataFrame:
 
 
 def _canonical_completed_minute_timestamp(timestamp_ms: int) -> int:
-    """Map Binance closeTime ``...59,999`` to its minute availability boundary."""
+    """Map legacy Binance close times to the minute availability boundary."""
 
-    return timestamp_ms + 1 if timestamp_ms % MINUTE_MS == MINUTE_MS - 1 else timestamp_ms
+    residue = timestamp_ms % MINUTE_MS
+    if residue in LEGACY_CLOSE_TIME_RESIDUES_MS:
+        return timestamp_ms + MINUTE_MS - residue
+    return timestamp_ms
 
 
 def _month_key(timestamp_ms: int) -> str:
@@ -250,14 +259,17 @@ class PartitionedPriceStore:
                 )
             integer_values = values.astype("int64")
             residues = integer_values % MINUTE_MS
-            unsupported = ~residues.isin((0, MINUTE_MS - 1))
+            supported_residues = (0, *LEGACY_CLOSE_TIME_RESIDUES_MS)
+            unsupported = ~residues.isin(supported_residues)
             if unsupported.any():
                 sample = int(integer_values.loc[unsupported].iloc[0])
                 raise ValueError(
                     "price partition contains a timestamp that is neither a minute "
                     f"boundary nor a Binance closeTime: {path.name} timestamp_ms={sample}"
                 )
-            needs_repair = needs_repair or bool((residues == MINUTE_MS - 1).any())
+            needs_repair = needs_repair or bool(
+                residues.isin(LEGACY_CLOSE_TIME_RESIDUES_MS).any()
+            )
             source_rows += int(len(integer_values))
 
         if not needs_repair:
