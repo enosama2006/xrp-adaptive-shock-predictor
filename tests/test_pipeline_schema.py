@@ -3,26 +3,38 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+from xasp.kline_time import canonical_kline_availability_timestamp
 from xasp.pipeline import (
     IncrementalResearchPipeline,
     PipelineConfig,
     PipelinePaths,
-    _normalize_completed_minute_timestamp,
     _records_to_prices,
 )
 
 
-def test_binance_close_timestamp_is_normalized_to_availability_boundary() -> None:
-    assert _normalize_completed_minute_timestamp(59_999) == 60_000
-    assert _normalize_completed_minute_timestamp(119_999) == 120_000
-    assert _normalize_completed_minute_timestamp(120_000) == 120_000
+def test_binance_candle_identity_uses_open_time_availability_boundary() -> None:
+    assert (
+        canonical_kline_availability_timestamp(
+            open_time_ms=0,
+            close_time_ms=59_999,
+        )
+        == 60_000
+    )
+    assert (
+        canonical_kline_availability_timestamp(
+            open_time_ms=60_000,
+            close_time_ms=108_301,
+        )
+        == 120_000
+    )
 
 
 def test_kline_trade_flow_fields_are_preserved() -> None:
     record = SimpleNamespace(
-        event_time_ms=59_999,
+        event_time_ms=48_301,
         payload={
-            "close_time_ms": 59_999,
+            "open_time_ms": 0,
+            "close_time_ms": 48_301,
             "open": "1.0",
             "high": "1.2",
             "low": "0.9",
@@ -59,6 +71,7 @@ class FormingCandleClient:
         yield SimpleNamespace(
             event_time_ms=end_time_ms - 1,
             payload={
+                "open_time_ms": end_time_ms - 60_000,
                 "close_time_ms": end_time_ms - 1,
                 "open": "1.0",
                 "high": "1.0",
@@ -70,6 +83,7 @@ class FormingCandleClient:
         yield SimpleNamespace(
             event_time_ms=end_time_ms + 59_999,
             payload={
+                "open_time_ms": end_time_ms,
                 "close_time_ms": end_time_ms + 59_999,
                 "open": "1.0",
                 "high": "9.0",

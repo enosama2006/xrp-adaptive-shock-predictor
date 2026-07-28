@@ -37,6 +37,45 @@ def test_full_price_precision_is_retained_but_not_required_as_model_scale() -> N
     assert result.loc[2, "return_1m"] == pytest.approx(1.354660 / 1.254478 - 1)
 
 
+def test_all_rolling_and_exponential_features_restart_after_market_gap() -> None:
+    segment_rows = 600
+    first_timestamps = np.arange(segment_rows, dtype=np.int64) * 60_000
+    second_start = int(first_timestamps[-1] + 81 * 60_000)
+    second_timestamps = second_start + np.arange(segment_rows, dtype=np.int64) * 60_000
+    first_price = 1.0 + np.arange(segment_rows) * 0.0001
+    second_price = 2.0 + np.sin(np.arange(segment_rows) / 11.0) * 0.02
+
+    def frame(timestamps: np.ndarray, price: np.ndarray) -> pd.DataFrame:
+        return pd.DataFrame(
+            {
+                "timestamp_ms": timestamps,
+                "price": price,
+                "open": price - 0.001,
+                "high": price + 0.003,
+                "low": price - 0.003,
+                "volume": 1_000.0 + np.arange(len(price)),
+                "quote_volume": 2_000.0 + np.arange(len(price)),
+                "trade_count": 100.0 + np.arange(len(price)),
+                "taker_buy_base": 500.0 + np.arange(len(price)) / 2.0,
+                "taker_buy_quote": 1_000.0 + np.arange(len(price)) / 2.0,
+            }
+        )
+
+    first = frame(first_timestamps, first_price)
+    second = frame(second_timestamps, second_price)
+    combined_features = build_price_features(
+        pd.concat([first, second], ignore_index=True)
+    ).iloc[segment_rows:].reset_index(drop=True)
+    standalone_features = build_price_features(second).reset_index(drop=True)
+
+    pd.testing.assert_frame_equal(combined_features, standalone_features)
+    assert pd.isna(combined_features.loc[0, "return_1m"])
+    assert pd.isna(combined_features.loc[479, "return_480m"])
+    assert combined_features.loc[480, "return_480m"] == pytest.approx(
+        second_price[480] / second_price[0] - 1
+    )
+
+
 def test_volume_is_log_compressed_and_raw_volume_is_not_a_model_feature() -> None:
     prices = pd.DataFrame(
         {

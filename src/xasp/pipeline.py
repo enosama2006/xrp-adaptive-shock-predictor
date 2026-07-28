@@ -12,6 +12,7 @@ import pandas as pd
 from .anchor_dataset import AnchorDatasetConfig, AnchorDatasetStore
 from .data.binance import BinanceDataClient
 from .dataset_state import DatasetStateStore
+from .kline_time import canonical_kline_availability_timestamp
 from .labeling import CandlePoint
 from .partitioned_anchor_builder import (
     AnchorBuildResult,
@@ -104,12 +105,6 @@ class PipelineRunResult:
     anchor_partition_count: int = 0
 
 
-def _normalize_completed_minute_timestamp(timestamp_ms: int) -> int:
-    """Normalize Binance ``closeTime`` (...59,999) to its availability boundary."""
-
-    return timestamp_ms + 1 if timestamp_ms % MINUTE_MS == MINUTE_MS - 1 else timestamp_ms
-
-
 def _load_prices(path: Path) -> pd.DataFrame:
     """Compatibility loader backed by the partition store and legacy migration."""
 
@@ -153,11 +148,18 @@ def _records_to_prices(records: Iterable[KlineRecord]) -> pd.DataFrame:
     rows: list[dict[str, object]] = []
     for record in records:
         payload = record.payload
+        raw_open_time = _required_int(
+            payload.get("open_time_ms"),
+            "open_time_ms",
+        )
         raw_close_time = _required_int(
             payload.get("close_time_ms", record.event_time_ms),
             "close_time_ms",
         )
-        timestamp_ms = _normalize_completed_minute_timestamp(raw_close_time)
+        timestamp_ms = canonical_kline_availability_timestamp(
+            open_time_ms=raw_open_time,
+            close_time_ms=raw_close_time,
+        )
         rows.append(
             {
                 "timestamp_ms": timestamp_ms,

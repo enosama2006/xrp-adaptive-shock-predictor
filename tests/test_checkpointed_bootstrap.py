@@ -11,11 +11,13 @@ from xasp.price_store import PartitionedPriceStore
 MINUTE = 60_000
 
 
-def _record(timestamp_ms: int, price: float = 1.0) -> SimpleNamespace:
+def _record(open_time_ms: int, price: float = 1.0) -> SimpleNamespace:
+    close_time_ms = open_time_ms + MINUTE - 1
     return SimpleNamespace(
-        event_time_ms=timestamp_ms,
+        event_time_ms=close_time_ms,
         payload={
-            "close_time_ms": timestamp_ms,
+            "open_time_ms": open_time_ms,
+            "close_time_ms": close_time_ms,
             "open": str(price),
             "high": str(price),
             "low": str(price),
@@ -86,7 +88,7 @@ def test_interrupted_backfill_preserves_completed_checkpoints(tmp_path: Path) ->
 
     saved = _load_prices(paths)
     assert len(saved) == 6
-    assert int(saved["timestamp_ms"].max()) == 5 * MINUTE
+    assert int(saved["timestamp_ms"].max()) == 6 * MINUTE
     assert paths.state.exists()
     assert pipeline.price_store.stats().partition_count == 1
 
@@ -110,9 +112,9 @@ def test_restart_resumes_from_checkpoint_and_completes_range(tmp_path: Path) -> 
     result = resumed.run(10 * MINUTE, progress_callback=progress_events.append)
 
     saved = _load_prices(paths)
-    assert result.total_price_rows == 11
-    assert len(saved) == 11
-    assert int(saved["timestamp_ms"].min()) == 0
+    assert result.total_price_rows == 10
+    assert len(saved) == 10
+    assert int(saved["timestamp_ms"].min()) == MINUTE
     assert int(saved["timestamp_ms"].max()) == 10 * MINUTE
     assert result.requested_start_ms > 0
     assert result.checkpoint_writes >= 1

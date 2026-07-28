@@ -77,16 +77,15 @@ def _add_normalized_family(
             )
 
 
-def build_price_features(
+def _build_contiguous_price_features(
     prices: pd.DataFrame,
     config: FeatureConfig = FeatureConfig(),
 ) -> pd.DataFrame:
-    """Build causal, scale-stable price, volume, and kline trade-flow features.
+    """Build features for one uninterrupted one-minute candle segment.
 
-    Raw exchange values retain full precision in the source table. The returned
-    model-feature table keeps the reference price for display/join purposes but
-    derives learnable inputs from relative/log/standardized quantities. All
-    rolling statistics use only the current and prior completed candles.
+    The public wrapper splits the source timeline before calling this function,
+    so every row-count rolling statistic and exponential indicator resets after
+    a real exchange gap.
     """
 
     _require_columns(prices, {config.timestamp_column, config.price_column})
@@ -317,6 +316,37 @@ def build_price_features(
 
     frame["feature_available_at_ms"] = frame[config.timestamp_column]
     return frame.replace([np.inf, -np.inf], np.nan)
+
+
+def build_price_features(
+    prices: pd.DataFrame,
+    config: FeatureConfig = FeatureConfig(),
+) -> pd.DataFrame:
+    """Build causal features without allowing any window to cross a time gap.
+
+    Raw exchange values retain full precision in the source table. Learnable
+    inputs are relative, logarithmic, or standardized. A timestamp discontinuity
+    starts a new segment, resetting returns, rolling windows, RSI, ATR, Bollinger
+    bands, and every normalized trade-flow family.
+    """
+
+    _require_columns(prices, {config.timestamp_column, config.price_column})
+    ordered = prices.copy()
+    ordered[config.timestamp_column] = pd.to_numeric(
+        ordered[config.timestamp_column],
+        errors="raise",
+    ).astype("int64")
+    ordered = ordered.drop_duplicates(config.timestamp_column, keep="last")
+    ordered = ordered.sort_values(config.timestamp_column, ignore_index=True)
+    if ordered.empty:
+        return _build_contiguous_price_features(ordered, config)
+    timestamps = ordered[config.timestamp_column]
+    segment_ids = timestamps.diff().ne(60_000).cumsum()
+    segments = (
+        _build_contiguous_price_features(segment.copy(), config)
+        for _, segment in ordered.groupby(segment_ids, sort=False)
+    )
+    return pd.concat(segments, ignore_index=True)
 
 
 def build_feature_diagnostics(

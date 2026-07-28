@@ -20,6 +20,7 @@ from typing import Protocol
 import pandas as pd
 
 from .data.binance import BinanceDataClient
+from .kline_time import canonical_kline_availability_timestamp
 from .price_store import (
     PRICE_COLUMNS,
     NonCanonicalPriceTimestampsError,
@@ -152,10 +153,6 @@ def _ceil_minute(value: int) -> int:
     return value if remainder == 0 else value + MINUTE_MS - remainder
 
 
-def _normalize_completed_timestamp(value: int) -> int:
-    return value + 1 if value % MINUTE_MS == MINUTE_MS - 1 else value
-
-
 def _month_open_bounds(month_key: str) -> tuple[int, int]:
     """Return the first and last one-minute candle open time in a UTC month."""
 
@@ -208,8 +205,12 @@ def _records_to_prices(
     rows: list[dict[str, object]] = []
     for record in records:
         payload = record.payload
+        raw_open = int(_scalar(payload.get("open_time_ms"), "open_time_ms"))
         raw_close = int(_scalar(payload.get("close_time_ms", record.event_time_ms), "close_time_ms"))
-        timestamp_ms = _normalize_completed_timestamp(raw_close)
+        timestamp_ms = canonical_kline_availability_timestamp(
+            open_time_ms=raw_open,
+            close_time_ms=raw_close,
+        )
         if timestamp_ms < target_start_ms or timestamp_ms > target_end_ms:
             continue
         rows.append(
