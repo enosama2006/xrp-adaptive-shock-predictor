@@ -1,11 +1,13 @@
-"""Future-excursion models trained only on observed market outcomes.
+"""Hourly close-path and future-excursion models from observed outcomes.
 
 Model B answers which ±2% barrier is reached first. Model A estimates observed
-future upside/downside excursions for each horizon using candle highs/lows.
+closing-price quantiles at each hourly boundary plus upside/downside excursions
+inside each horizon using candle closes/highs/lows.
 """
 
 from __future__ import annotations
 
+import math
 from dataclasses import asdict, dataclass
 from typing import Any
 
@@ -69,7 +71,7 @@ def build_future_envelope_targets(
     prices: pd.DataFrame,
     horizons: tuple[int, ...] = HORIZONS,
 ) -> pd.DataFrame:
-    """Create observed future max/min returns and occurrence times.
+    """Create observed close/max/min returns and excursion occurrence times.
 
     A target is emitted only when every expected minute exists. No interpolation
     or synthetic row is introduced.
@@ -128,6 +130,7 @@ def build_future_envelope_targets(
             min_offset = int(np.argmin(low_segment)) + 1
             max_price = float(high_segment[max_offset - 1])
             min_price = float(low_segment[min_offset - 1])
+            close_price = float(closes[end_index])
             rows.append(
                 {
                     "anchor_timestamp_ms": int(anchor_ms),
@@ -136,8 +139,10 @@ def build_future_envelope_targets(
                     "horizon_end_ms": end_ms,
                     "future_max_price": max_price,
                     "future_min_price": min_price,
+                    "future_close_price": close_price,
                     "future_max_return": max_price / float(anchor_price) - 1.0,
                     "future_min_return": min_price / float(anchor_price) - 1.0,
+                    "future_close_return": close_price / float(anchor_price) - 1.0,
                     "minutes_to_max": max_offset,
                     "minutes_to_min": min_offset,
                     "hit_up_02": max_price
@@ -220,10 +225,21 @@ def _target_metrics(
     frame: pd.DataFrame,
     feature_names: list[str],
     target: str,
+    *,
+    interval_expansion: float = 0.0,
 ) -> dict[str, float | int]:
-    lower = target_models[0.05].predict(frame[feature_names])
-    median = target_models[0.50].predict(frame[feature_names])
-    upper = target_models[0.95].predict(frame[feature_names])
+    raw = np.column_stack(
+        [
+            target_models[0.05].predict(frame[feature_names]),
+            target_models[0.50].predict(frame[feature_names]),
+            target_models[0.95].predict(frame[feature_names]),
+        ]
+    )
+    raw_ordered = (raw[:, 0] <= raw[:, 1]) & (raw[:, 1] <= raw[:, 2])
+    ordered = np.sort(raw, axis=1)
+    lower = ordered[:, 0] - interval_expansion
+    median = ordered[:, 1]
+    upper = ordered[:, 2] + interval_expansion
     truth = frame[target].to_numpy(dtype=float)
     return {
         "rows": int(len(frame)),
@@ -233,7 +249,11 @@ def _target_metrics(
         "pinball_q95": float(mean_pinball_loss(truth, upper, alpha=0.95)),
         "interval_coverage_90": float(np.mean((truth >= lower) & (truth <= upper))),
         "interval_mean_width": float(np.mean(upper - lower)),
-        "quantile_order_fraction": float(np.mean((lower <= median) & (median <= upper))),
+        "raw_quantile_order_fraction": float(np.mean(raw_ordered)),
+        "quantile_order_fraction": float(
+            np.mean((lower <= median) & (median <= upper))
+        ),
+        "conformal_interval_expansion": float(interval_expansion),
         "start_ms": int(frame["anchor_timestamp_ms"].min()),
         "end_ms": int(frame["anchor_timestamp_ms"].max()),
     }
@@ -244,8 +264,8 @@ def train_future_envelope(
     feature_names: list[str],
     horizon_minutes: int,
     config: EnvelopeConfig = EnvelopeConfig(),
-) -> tuple[dict[str, Pipeline] | None, EnvelopeReport]:
-    """Fit purged quantile models for future maximum and minimum return."""
+) -> tuple[dict[str, Any] | None, EnvelopeReport]:
+    """Fit purged quantile models for hourly close, maximum, and minimum return."""
 
     required = {
         "anchor_timestamp_ms",
@@ -253,13 +273,18 @@ def train_future_envelope(
         "horizon_end_ms",
         "future_max_return",
         "future_min_return",
+        "future_close_return",
         *feature_names,
     }
     missing = required - set(dataset.columns)
     if missing:
         raise ValueError(f"envelope dataset missing columns: {sorted(missing)}")
     usable = dataset[dataset["horizon_minutes"] == horizon_minutes].dropna(
-        subset=["future_max_return", "future_min_return"]
+        subset=[
+            "future_max_return",
+            "future_min_return",
+            "future_close_return",
+        ]
     )
     if len(usable) < config.minimum_rows:
         return None, EnvelopeReport(
@@ -290,7 +315,7 @@ def train_future_envelope(
             {"split_audit": split_audit},
         )
 
-    models: dict[str, Pipeline] = {}
+    models: dict[str, Any] = {}
     metrics: dict[str, Any] = {
         "split_audit": split_audit,
         "target_definition_version": TARGET_DEFINITION_VERSION,
@@ -310,7 +335,11 @@ def train_future_envelope(
         ),
     }
     all_covered = True
-    for target in ("future_max_return", "future_min_return"):
+    for target in (
+        "future_max_return",
+        "future_min_return",
+        "future_close_return",
+    ):
         target_models: dict[float, Pipeline] = {}
         for quantile in QUANTILES:
             model = _quantile_pipeline(quantile, config)
@@ -318,17 +347,45 @@ def train_future_envelope(
             target_models[quantile] = model
             models[f"{target}_q{int(quantile * 100):02d}"] = model
 
+        validation_raw = np.column_stack(
+            [
+                target_models[0.05].predict(validation[feature_names]),
+                target_models[0.50].predict(validation[feature_names]),
+                target_models[0.95].predict(validation[feature_names]),
+            ]
+        )
+        validation_ordered = np.sort(validation_raw, axis=1)
+        validation_truth = validation[target].to_numpy(dtype=float)
+        nonconformity = np.maximum(
+            validation_ordered[:, 0] - validation_truth,
+            validation_truth - validation_ordered[:, 2],
+        )
+        nonconformity = np.maximum(nonconformity, 0.0)
+        finite_sample_quantile = min(
+            1.0,
+            math.ceil((len(nonconformity) + 1) * 0.90) / len(nonconformity),
+        )
+        interval_expansion = float(
+            np.quantile(
+                nonconformity,
+                finite_sample_quantile,
+                method="higher",
+            )
+        )
+        models[f"{target}_interval_expansion"] = interval_expansion
         validation_metrics = _target_metrics(
             target_models,
             validation,
             feature_names,
             target,
+            interval_expansion=interval_expansion,
         )
         test_metrics = _target_metrics(
             target_models,
             test,
             feature_names,
             target,
+            interval_expansion=interval_expansion,
         )
         metrics[target] = {
             "validation": validation_metrics,
@@ -360,5 +417,19 @@ def train_future_envelope(
     return (models if all_covered else None), report
 
 
-def predict_envelope(models: dict[str, Pipeline], row: pd.DataFrame) -> dict[str, float]:
-    return {name: float(model.predict(row)[0]) for name, model in models.items()}
+def predict_envelope(models: dict[str, Any], row: pd.DataFrame) -> dict[str, float]:
+    output: dict[str, float] = {}
+    for target in (
+        "future_max_return",
+        "future_min_return",
+        "future_close_return",
+    ):
+        raw = sorted(
+            float(models[f"{target}_q{quantile:02d}"].predict(row)[0])
+            for quantile in (5, 50, 95)
+        )
+        expansion = float(models.get(f"{target}_interval_expansion", 0.0))
+        output[f"{target}_q05"] = raw[0] - expansion
+        output[f"{target}_q50"] = raw[1]
+        output[f"{target}_q95"] = raw[2] + expansion
+    return output

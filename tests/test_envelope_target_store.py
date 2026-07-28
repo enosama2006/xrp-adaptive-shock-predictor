@@ -30,8 +30,10 @@ def _anchor_frame() -> pd.DataFrame:
                 "lower_barrier_price": 0.98,
                 "max_price": 1.12,
                 "min_price": 0.97,
+                "horizon_close_price": 1.04,
                 "max_return": 0.12,
                 "min_return": -0.03,
+                "horizon_close_return": 0.04,
                 "label": "UP_02",
                 "touch_timestamp_ms": timestamp + 30 * 60_000,
                 "touch_price": 1.02,
@@ -56,6 +58,7 @@ def test_sync_materializes_partitioned_targets(tmp_path: Path) -> None:
     target = target_store.load_partition(key).iloc[0]
     assert float(target["future_max_return"]) == 0.12
     assert float(target["future_min_return"]) == -0.03
+    assert float(target["future_close_return"]) == 0.04
     assert bool(target["hit_up_02"]) is True
     assert bool(target["hit_down_02"]) is True
 

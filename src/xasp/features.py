@@ -15,14 +15,14 @@ class FeatureConfig:
 
     price_column: str = "price"
     timestamp_column: str = "timestamp_ms"
-    windows_minutes: tuple[int, ...] = (1, 5, 15, 30, 60)
-    normalization_windows_minutes: tuple[int, ...] = (15, 60, 240)
+    windows_minutes: tuple[int, ...] = (1, 5, 15, 30, 60, 120, 240, 480)
+    normalization_windows_minutes: tuple[int, ...] = (15, 60, 240, 480)
     volume_column: str = "volume"
     quote_volume_column: str = "quote_volume"
     trade_count_column: str = "trade_count"
     taker_buy_base_column: str = "taker_buy_base"
     taker_buy_quote_column: str = "taker_buy_quote"
-    indicator_windows_minutes: tuple[int, ...] = (14, 60)
+    indicator_windows_minutes: tuple[int, ...] = (14, 60, 240)
     bollinger_window_minutes: int = 20
 
 
@@ -113,6 +113,16 @@ def build_price_features(
         raise ValueError("timestamps must be monotonic")
 
     price = pd.to_numeric(frame[config.price_column], errors="coerce").astype(float)
+    utc_time = pd.to_datetime(
+        frame[config.timestamp_column],
+        unit="ms",
+        utc=True,
+    )
+    minute_of_day = utc_time.dt.hour * 60 + utc_time.dt.minute
+    frame["utc_time_sin"] = np.sin(2.0 * np.pi * minute_of_day / 1_440.0)
+    frame["utc_time_cos"] = np.cos(2.0 * np.pi * minute_of_day / 1_440.0)
+    frame["utc_weekday_sin"] = np.sin(2.0 * np.pi * utc_time.dt.dayofweek / 7.0)
+    frame["utc_weekday_cos"] = np.cos(2.0 * np.pi * utc_time.dt.dayofweek / 7.0)
     log_price = np.log(price)
     one_step_return = price.pct_change()
     one_step_log_return = log_price.diff()
@@ -124,7 +134,7 @@ def build_price_features(
             raise ValueError("feature windows must be positive")
         frame[f"return_{window}m"] = price.pct_change(window)
         frame[f"log_return_{window}m"] = log_price.diff(window)
-        volatility_min_periods = min(window, 2)
+        volatility_min_periods = min(window, max(2, window // 4))
         frame[f"volatility_{window}m"] = one_step_log_return.rolling(
             window=window,
             min_periods=volatility_min_periods,

@@ -1,8 +1,8 @@
-"""Extended-horizon Model B runtime with independent per-horizon promotion.
+"""Joint eight-hour competing-risk runtime for Model B.
 
-Each cumulative hourly horizon is trained, gated, versioned, and served
-independently. A valid 8-hour model can therefore operate while another hourly
-horizon remains WAIT. No missing horizon is filled with fabricated probabilities.
+One completed eight-hour first-touch row is used per anchor. The event timestamp
+defines the arrival hour, and every cumulative hourly probability is projected
+from one fitted distribution.
 """
 
 from __future__ import annotations
@@ -10,7 +10,6 @@ from __future__ import annotations
 import json
 import shutil
 import time
-from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
@@ -18,10 +17,15 @@ import joblib
 import pandas as pd
 
 from .anchor_dataset import AnchorDatasetConfig, AnchorDatasetStore
-from .baseline import BaselineConfig
+from .competing_risk import (
+    COMPETING_RISK_GATE_VERSION,
+    COMPETING_RISK_MODEL_KIND,
+    CompetingRiskConfig,
+    predict_hourly_competing_risks,
+    train_competing_risk_model,
+)
 from .feature_registry import SCHEMA_VERSION as FEATURE_SCHEMA_VERSION
 from .features import join_anchors_with_features
-from .first_touch_v4 import FIRST_TOUCH_GATE_VERSION, train_first_touch_v4
 from .horizons import RESEARCH_HORIZON_SET_VERSION, RESEARCH_HORIZONS_MINUTES
 from .partitioned_horizon_store import HorizonStoreStats
 from .pipeline import IncrementalResearchPipeline, PipelineConfig, PipelinePaths
@@ -30,25 +34,31 @@ from .prediction_ledger import PredictionRecord
 from .target_definition import TARGET_DEFINITION_VERSION
 
 HORIZONS = RESEARCH_HORIZONS_MINUTES
-LABELS = ("UP_02", "DOWN_02", "NO_EVENT")
 ANCHOR_REBUILD_CHUNK_ROWS = 10_000
 
 
 def _bundle_model_keys(bundle: dict[str, Any]) -> set[int]:
+    if bundle.get("model_kind") == COMPETING_RISK_MODEL_KIND:
+        return {int(value) for value in bundle.get("available_horizons", ())}
     return {int(value) for value in bundle.get("models", {})}
 
 
 def _valid_bundle(bundle: Any) -> bool:
     if not isinstance(bundle, dict):
         return False
-    if bundle.get("gate_methodology_version") != FIRST_TOUCH_GATE_VERSION:
+    if bundle.get("gate_methodology_version") != COMPETING_RISK_GATE_VERSION:
         return False
     if bundle.get("horizon_set_version") != RESEARCH_HORIZON_SET_VERSION:
         return False
     if bundle.get("target_definition_version") != TARGET_DEFINITION_VERSION:
         return False
     keys = _bundle_model_keys(bundle)
-    return bool(keys) and keys.issubset(set(HORIZONS))
+    if bundle.get("model_kind") == COMPETING_RISK_MODEL_KIND:
+        return (
+            bundle.get("joint_model") is not None
+            and keys == set(HORIZONS)
+        )
+    return False
 
 
 def _anchor_horizon_matrix_complete(frame: pd.DataFrame) -> bool:
@@ -130,27 +140,13 @@ class ExtendedHorizonRealDataPlatform(RealDataPlatform):
         self.status.pending_rows = anchors.pending_rows
         self._save_status()
 
-    @staticmethod
-    def _failure_reason(reports: dict[str, Any]) -> str:
-        reasons = {
-            str(report.get("reason", "unknown"))
-            for report in reports.values()
-            if isinstance(report, dict)
-        }
-        if "insufficient_independent_directional_events_across_untouched_periods" in reasons:
-            return "model_b_independent_walk_forward_event_support_wait"
-        if "walk_forward_split_unavailable" in reasons:
-            return "model_b_walk_forward_split_wait"
-        if "directional_empirical_precision_below_required_85pct" in reasons:
-            return "model_b_directional_precision_gate_wait"
-        return "directional_event_evidence_gate_failed"
-
     def train_if_due(self, force: bool = False) -> bool:
         if not self.config.training_enabled:
             return False
-        anchors = AnchorDatasetStore(self.paths.anchors).load()
+        anchor_store = AnchorDatasetStore(self.paths.anchors)
+        anchor_stats = anchor_store.stats()
         features = pd.read_parquet(self.paths.features)
-        final_count = int((anchors["status"] == "FINAL").sum())
+        final_count = anchor_stats.final_rows
         due = force or (
             final_count
             >= self.status.last_training_final_rows + self.config.retrain_after_new_final_rows
@@ -161,44 +157,40 @@ class ExtendedHorizonRealDataPlatform(RealDataPlatform):
         self._set_lifecycle(
             "TRAIN_MODEL_B",
             progress=0.0,
-            message="training_first_touch_independent_horizon_challengers",
+            message="training_joint_hourly_competing_risk_model",
         )
         self._save_feature_diagnostics(features)
-        matrix = join_anchors_with_features(anchors, features)
         feature_names = self._feature_names(features)
-        incumbent_models: dict[int, Any] = {}
-        if self._bundle is not None:
-            incumbent_models = {
-                int(horizon): model for horizon, model in self._bundle.get("models", {}).items()
-            }
-        models = dict(incumbent_models)
-        reports: dict[str, Any] = {}
-        promoted_horizons: list[int] = []
-        rejected_horizons: list[int] = []
-
-        for index, horizon in enumerate(HORIZONS, start=1):
-            subset = matrix[matrix["horizon_minutes"] == horizon].copy()
-            horizon_ms = horizon * 60_000
-            model, report = train_first_touch_v4(
-                subset,
-                feature_names,
-                BaselineConfig(
-                    minimum_rows=self.config.minimum_final_rows_per_horizon,
-                    label_horizon_ms=horizon_ms,
-                    embargo_ms=horizon_ms,
-                ),
-            )
-            reports[str(horizon)] = asdict(report)
-            if model is None:
-                rejected_horizons.append(horizon)
-            else:
-                models[horizon] = model
-                promoted_horizons.append(horizon)
-            self._set_lifecycle(
-                "TRAIN_MODEL_B",
-                progress=index / len(HORIZONS),
-                message=f"trained_or_evaluated_horizon_{horizon}m",
-            )
+        anchors = anchor_store.load(
+            horizons=(max(HORIZONS),),
+            statuses=("FINAL",),
+        )
+        matrix = join_anchors_with_features(anchors, features)
+        model, report = train_competing_risk_model(
+            matrix,
+            feature_names,
+            CompetingRiskConfig(
+                minimum_rows=self.config.minimum_final_rows_per_horizon,
+            ),
+        )
+        report_payload = report.to_dict()
+        reports = {
+            "_joint": report_payload,
+            **{
+                str(horizon): {
+                    "status": report.status,
+                    "reason": report.reason,
+                    "row_count": report.row_count,
+                    "metrics": {
+                        "gate_methodology_version": COMPETING_RISK_GATE_VERSION,
+                        "target_definition_version": TARGET_DEFINITION_VERSION,
+                        "model_kind": COMPETING_RISK_MODEL_KIND,
+                        "joint_report_key": "_joint",
+                    },
+                }
+                for horizon in HORIZONS
+            },
+        }
 
         self.paths.reports.parent.mkdir(parents=True, exist_ok=True)
         temporary_report = self.paths.reports.with_suffix(".json.tmp")
@@ -209,39 +201,43 @@ class ExtendedHorizonRealDataPlatform(RealDataPlatform):
         temporary_report.replace(self.paths.reports)
         self.status.last_training_final_rows = final_count
 
-        if not models:
-            self._bundle = None
-            self.status.model_available = False
-            self.status.model_version = None
-            self.status.state = "WAIT"
-            self.status.reason = self._failure_reason(reports)
+        if model is None:
+            if self._bundle is None:
+                self.status.model_available = False
+                self.status.model_version = None
+                self.status.state = "WAIT"
+                self.status.reason = report.reason
             self._set_lifecycle(
                 "MODEL_B_WAIT",
                 progress=1.0,
-                message="model_b_all_horizons_wait",
+                message=(
+                    "joint_model_challenger_rejected_champion_retained"
+                    if self._bundle is not None
+                    else "joint_model_not_yet_trainable"
+                ),
             )
             return False
 
-        version = f"real-logistic-2pct-independent-horizons-{int(time.time())}"
+        version = f"real-joint-2pct-hourly-competing-risk-{int(time.time())}"
         bundle = {
             "model_version": version,
             "trained_at_ms": int(time.time() * 1000),
             "feature_names": feature_names,
             "feature_schema_version": FEATURE_SCHEMA_VERSION,
-            "gate_methodology_version": FIRST_TOUCH_GATE_VERSION,
+            "gate_methodology_version": COMPETING_RISK_GATE_VERSION,
+            "model_kind": COMPETING_RISK_MODEL_KIND,
             "horizon_set_version": RESEARCH_HORIZON_SET_VERSION,
             "target_definition_version": TARGET_DEFINITION_VERSION,
             "configured_horizons": list(HORIZONS),
-            "available_horizons": sorted(models),
-            "promoted_horizons_this_run": promoted_horizons,
-            "rejected_horizons_this_run": rejected_horizons,
-            "models": models,
+            "available_horizons": list(HORIZONS),
+            "joint_model": model,
             "reports": reports,
+            "decision_policy": report.metrics.get("advisory_gate", {}),
             "training_final_rows": final_count,
             "source": "real_binance_public_data_only",
             "promotion_evidence": (
-                "independent_event_clusters_plus_purged_walk_forward_support_"
-                "plus_untouched_temporal_precision"
+                "single_coherent_event_time_distribution_with_purged_temporal_"
+                "validation_and_untouched_directional_policy_test"
             ),
             "promoted_for_trading": False,
         }
@@ -252,24 +248,24 @@ class ExtendedHorizonRealDataPlatform(RealDataPlatform):
         self._bundle = bundle
         self.status.model_available = True
         self.status.model_version = version
-        self.status.state = "PARTIAL_RESEARCH"
+        self.status.state = "RESEARCH_ONLY"
         self.status.reason = (
-            "model_b_all_horizons_research_ready"
-            if set(models) == set(HORIZONS)
-            else "model_b_some_horizons_research_ready_others_wait"
+            "joint_first_touch_advisory_gate_passed"
+            if report.metrics.get("advisory_gate", {}).get("status") == "PASS"
+            else "joint_first_touch_forecast_available_advisory_wait"
         )
         self._set_lifecycle(
             "MODEL_B_RESEARCH_READY",
             progress=1.0,
-            message="model_b_independent_horizon_gates_evaluated",
+            message="joint_hourly_competing_risk_model_ready",
         )
-        return bool(promoted_horizons)
+        return True
 
     def predict_latest(self, now_ms: int | None = None) -> list[dict[str, Any]]:
         timestamp = int(time.time() * 1000) if now_ms is None else now_ms
         if self._bundle is None:
             self.status.state = "WAIT"
-            self.status.reason = "no_directionally_valid_first_touch_horizon"
+            self.status.reason = "no_joint_competing_risk_forecast_available"
             self._save_status()
             return []
         if (
@@ -281,7 +277,7 @@ class ExtendedHorizonRealDataPlatform(RealDataPlatform):
         self._set_lifecycle(
             "PREDICT",
             progress=0.0,
-            message="creating_model_b_predictions_for_available_horizons",
+            message="creating_coherent_joint_first_touch_timeline",
         )
         features = pd.read_parquet(self.paths.features)
         if features.empty:
@@ -291,21 +287,41 @@ class ExtendedHorizonRealDataPlatform(RealDataPlatform):
         anchor_price = float(latest["price"])
         feature_names = list(self._bundle["feature_names"])
         row = pd.DataFrame([{name: latest.get(name) for name in feature_names}])
+        joint_model = self._bundle.get("joint_model")
+        if joint_model is None:
+            self.status.state = "WAIT"
+            self.status.reason = "joint_competing_risk_model_missing"
+            self._save_status()
+            return []
+        timeline = predict_hourly_competing_risks(joint_model, row)
+        selected = timeline[-1]
+        event_probability = float(selected["event_probability"])
+        up = float(selected["p_up_02"])
+        down = float(selected["p_down_02"])
+        directional_confidence = (
+            max(up, down) / event_probability if event_probability else 0.5
+        )
+        bias = "LONG" if up > down else "SHORT" if down > up else "WAIT"
+        advisory = self._bundle.get("decision_policy", {})
+        policy = advisory.get("selected_policy")
+        decision = "WAIT"
+        decision_reason = "joint_forecast_available_advisory_gate_wait"
+        if advisory.get("status") == "PASS" and isinstance(policy, dict):
+            if (
+                event_probability >= float(policy["minimum_event_probability"])
+                and directional_confidence
+                >= float(policy["minimum_direction_confidence"])
+                and bias in {"LONG", "SHORT"}
+            ):
+                decision = bias
+                decision_reason = "validated_joint_competing_risk_signal"
+            else:
+                decision_reason = "validated_policy_thresholds_not_met_now"
+
         records: list[PredictionRecord] = []
         output: list[dict[str, Any]] = []
-        models = {int(horizon): model for horizon, model in self._bundle.get("models", {}).items()}
-        for horizon in sorted(models):
-            model = models[horizon]
-            probabilities = model.predict_proba(row)[0]
-            classes = [str(value) for value in model.classes_]
-            mapped = {label: 0.0 for label in LABELS}
-            for index, label in enumerate(classes):
-                if label in mapped:
-                    mapped[label] = float(probabilities[index])
-            total = sum(mapped.values())
-            if total <= 0:
-                continue
-            mapped = {key: value / total for key, value in mapped.items()}
+        for projection in timeline:
+            horizon = int(projection["horizon_minutes"])
             record = PredictionRecord(
                 created_at_ms=timestamp,
                 anchor_timestamp_ms=anchor_ms,
@@ -319,11 +335,11 @@ class ExtendedHorizonRealDataPlatform(RealDataPlatform):
                 feature_schema_version=str(
                     self._bundle.get("feature_schema_version", FEATURE_SCHEMA_VERSION)
                 ),
-                p_up_02=mapped["UP_02"],
-                p_down_02=mapped["DOWN_02"],
-                p_no_event=mapped["NO_EVENT"],
-                decision="WAIT",
-                decision_reason="research_model_not_promoted_for_trading",
+                p_up_02=float(projection["p_up_02"]),
+                p_down_02=float(projection["p_down_02"]),
+                p_no_event=float(projection["p_no_event"]),
+                decision=decision,
+                decision_reason=decision_reason,
             )
             records.append(record)
             output.append(record.to_row())
@@ -334,7 +350,7 @@ class ExtendedHorizonRealDataPlatform(RealDataPlatform):
             self._set_lifecycle(
                 "PREDICTIONS_STORED",
                 progress=1.0,
-                message="model_b_available_horizon_predictions_stored",
+                message="coherent_joint_first_touch_timeline_stored",
             )
         return output
 

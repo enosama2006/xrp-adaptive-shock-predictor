@@ -123,7 +123,11 @@ def test_lab_is_fail_closed_without_governed_model_bundle(tmp_path: Path) -> Non
     assert model_b["promoted_for_trading"] is False
     assert model_a["target_up_return"] == 0.02
     assert model_b["target_up_return"] == 0.02
-    assert model_b["algorithm"]["classes"] == ["UP_02", "DOWN_02", "NO_EVENT"]
+    assert model_b["algorithm"]["classes"] == [
+        "UP_H1..UP_H8",
+        "DOWN_H1..DOWN_H8",
+        "NO_EVENT",
+    ]
     assert result["status"] == "WAIT"
     assert result["reason"] == "no_governed_model_bundle_available"
     assert result["persisted"] is False

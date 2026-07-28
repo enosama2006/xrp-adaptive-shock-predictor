@@ -57,6 +57,8 @@ def test_fast_model_a_targets_include_full_eight_hour_window() -> None:
     assert int(row["horizon_minutes"]) == 480
     assert int(row["horizon_end_ms"]) == 480 * MINUTE
     assert int(row["minutes_to_max"]) == 480
+    assert float(row["future_close_price"]) == prices.iloc[-1]["price"]
+    assert float(row["future_close_return"]) == row["future_close_price"] - 1.0
 
 
 def test_first_touch_v4_fails_closed_without_independent_late_events() -> None:
@@ -109,6 +111,9 @@ def test_production_report_declares_all_independent_horizons() -> None:
 
 def test_browser_ui_contains_eight_hour_horizon() -> None:
     javascript = Path("app.js").read_text(encoding="utf-8")
+    html = Path("index.html").read_text(encoding="utf-8")
     assert "const HORIZONS = [60, 120, 180, 240, 300, 360, 420, 480];" in javascript
     assert "15 دقيقة" not in javascript
     assert "480 دقيقة (8 ساعات)" in javascript
+    assert "renderPricePathChart" in javascript
+    assert 'id="pricePathChart"' in html

@@ -151,4 +151,5 @@ Requires both statistical validation and a separate net-of-cost paper-trading re
 
 ## Honest status label
 
-**Refactor phase — real-data dual-model research platform, not validated trading software.**
+**Version 2 refactor — hourly price-path plus coherent joint first-touch
+research platform, not validated trading software.**

@@ -80,6 +80,11 @@ def test_directional_indicators_are_causal_and_ohlc_aware() -> None:
     assert "open" not in result.columns
     assert "high" not in result.columns
     assert "low" not in result.columns
+    assert "return_480m" in result.columns
+    assert "volatility_480m" in result.columns
+    assert "rsi_240m" in result.columns
+    assert "utc_time_sin" in result.columns
+    assert "utc_weekday_cos" in result.columns
 
 
 def test_feature_diagnostics_include_distribution_and_histogram() -> None:

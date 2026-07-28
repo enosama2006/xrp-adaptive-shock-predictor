@@ -172,17 +172,28 @@ def _envelope_metrics(predictions: pd.DataFrame, prices: pd.DataFrame) -> dict[s
         observed_low = float(
             path["low"].min() if "low" in path.columns else path["price"].min()
         )
+        observed_close = float(
+            path["close"].iloc[-1] if "close" in path.columns else path["price"].iloc[-1]
+        )
         max_return = observed_high / float(row.anchor_price) - 1.0
         min_return = observed_low / float(row.anchor_price) - 1.0
+        close_return = observed_close / float(row.anchor_price) - 1.0
         max_covered = float(row.max_return_q05) <= max_return <= float(row.max_return_q95)
         min_covered = float(row.min_return_q05) <= min_return <= float(row.min_return_q95)
+        close_covered = (
+            float(row.close_return_q05)
+            <= close_return
+            <= float(row.close_return_q95)
+        )
         rows.append(
             {
                 "horizon": int(row.horizon_minutes),
                 "max_covered": max_covered,
                 "min_covered": min_covered,
+                "close_covered": close_covered,
                 "max_abs_error": abs(max_return - float(row.max_return_q50)),
                 "min_abs_error": abs(min_return - float(row.min_return_q50)),
+                "close_abs_error": abs(close_return - float(row.close_return_q50)),
             }
         )
     if not rows:
@@ -201,10 +212,12 @@ def _envelope_metrics(predictions: pd.DataFrame, prices: pd.DataFrame) -> dict[s
         evaluated_rows = int(len(group))
         max_coverage = float(group["max_covered"].mean())
         min_coverage = float(group["min_covered"].mean())
+        close_coverage = float(group["close_covered"].mean())
         enough_rows = evaluated_rows >= REQUIRED_ENVELOPE_ROWS_PER_HORIZON
         coverage_passed = (
             max_coverage >= REQUIRED_MARGINAL_INTERVAL_COVERAGE
             and min_coverage >= REQUIRED_MARGINAL_INTERVAL_COVERAGE
+            and close_coverage >= REQUIRED_MARGINAL_INTERVAL_COVERAGE
         )
         if enough_rows:
             mature_horizons.add(horizon_int)
@@ -219,11 +232,17 @@ def _envelope_metrics(predictions: pd.DataFrame, prices: pd.DataFrame) -> dict[s
             "required_rows": REQUIRED_ENVELOPE_ROWS_PER_HORIZON,
             "max_interval_coverage": max_coverage,
             "min_interval_coverage": min_coverage,
+            "close_interval_coverage": close_coverage,
             "joint_interval_coverage": float(
-                (group["max_covered"] & group["min_covered"]).mean()
+                (
+                    group["max_covered"]
+                    & group["min_covered"]
+                    & group["close_covered"]
+                ).mean()
             ),
             "max_median_mae": float(group["max_abs_error"].mean()),
             "min_median_mae": float(group["min_abs_error"].mean()),
+            "close_median_mae": float(group["close_abs_error"].mean()),
         }
 
     all_horizons_mature = mature_horizons == EXPECTED_HORIZONS
@@ -247,13 +266,18 @@ def _envelope_metrics(predictions: pd.DataFrame, prices: pd.DataFrame) -> dict[s
         "required_rows_per_horizon": REQUIRED_ENVELOPE_ROWS_PER_HORIZON,
         "required_marginal_interval_coverage": REQUIRED_MARGINAL_INTERVAL_COVERAGE,
         "coverage_gate_basis": (
-            "upside and downside marginal 5-95% interval coverage are evaluated separately; "
-            "joint coverage is diagnostic and is naturally lower"
+            "upside, downside, and hourly close-price marginal 5-95% interval coverage "
+            "are evaluated separately; joint coverage is diagnostic and is naturally lower"
         ),
         "max_interval_coverage": float(frame["max_covered"].mean()),
         "min_interval_coverage": float(frame["min_covered"].mean()),
+        "close_interval_coverage": float(frame["close_covered"].mean()),
         "joint_interval_coverage": float(
-            (frame["max_covered"] & frame["min_covered"]).mean()
+            (
+                frame["max_covered"]
+                & frame["min_covered"]
+                & frame["close_covered"]
+            ).mean()
         ),
         "per_horizon": per_horizon,
     }

@@ -23,8 +23,10 @@ ENVELOPE_TARGET_COLUMNS: tuple[str, ...] = (
     "horizon_end_ms",
     "future_max_price",
     "future_min_price",
+    "future_close_price",
     "future_max_return",
     "future_min_return",
+    "future_close_return",
     "minutes_to_max",
     "minutes_to_min",
     "hit_up_02",
@@ -117,8 +119,10 @@ def _targets_from_anchor_partition(anchors: pd.DataFrame) -> pd.DataFrame:
         "horizon_end_ms",
         "max_price",
         "min_price",
+        "horizon_close_price",
         "max_return",
         "min_return",
+        "horizon_close_return",
         "status",
         "reason",
     }
@@ -129,6 +133,7 @@ def _targets_from_anchor_partition(anchors: pd.DataFrame) -> pd.DataFrame:
     valid = anchors[
         anchors["max_price"].notna()
         & anchors["min_price"].notna()
+        & anchors["horizon_close_price"].notna()
         & (
             (anchors["status"] == "FINAL")
             | (anchors["reason"] == "both_barriers_touched_in_same_candle")
@@ -139,6 +144,7 @@ def _targets_from_anchor_partition(anchors: pd.DataFrame) -> pd.DataFrame:
     anchor_price = valid["anchor_price"].astype(float)
     max_price = valid["max_price"].astype(float)
     min_price = valid["min_price"].astype(float)
+    close_price = valid["horizon_close_price"].astype(float)
     output = pd.DataFrame(
         {
             "anchor_timestamp_ms": valid["anchor_timestamp_ms"].astype("int64"),
@@ -147,8 +153,10 @@ def _targets_from_anchor_partition(anchors: pd.DataFrame) -> pd.DataFrame:
             "horizon_end_ms": valid["horizon_end_ms"].astype("int64"),
             "future_max_price": max_price,
             "future_min_price": min_price,
+            "future_close_price": close_price,
             "future_max_return": valid["max_return"].astype(float),
             "future_min_return": valid["min_return"].astype(float),
+            "future_close_return": valid["horizon_close_return"].astype(float),
             "minutes_to_max": pd.Series(pd.NA, index=valid.index, dtype="Int64"),
             "minutes_to_min": pd.Series(pd.NA, index=valid.index, dtype="Int64"),
             "hit_up_02": max_price >= anchor_price * (1.0 + TARGET_UP_RETURN),

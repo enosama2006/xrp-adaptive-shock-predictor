@@ -110,6 +110,7 @@ def _initial_dataset(
 
         max_price = np.full(row_count, np.nan, dtype=np.float64)
         min_price = np.full(row_count, np.nan, dtype=np.float64)
+        horizon_close_price = np.full(row_count, np.nan, dtype=np.float64)
         labels = np.full(row_count, BarrierLabel.INCOMPLETE.value, dtype=object)
         touch_timestamp = np.full(row_count, np.nan, dtype=np.float64)
         touch_price = np.full(row_count, np.nan, dtype=np.float64)
@@ -136,6 +137,7 @@ def _initial_dataset(
                 gap_prefix[candidate_indices + steps] - gap_prefix[candidate_indices] == 0
             ) & (timestamps[candidate_indices + steps] == horizon_end[candidate_indices])
             valid_indices = candidate_indices[contiguous & ~pending[:window_count]]
+            horizon_close_price[valid_indices] = closes[valid_indices + steps]
             high_windows = sliding_window_view(highs[1:], steps)
             low_windows = sliding_window_view(lows[1:], steps)
 
@@ -184,6 +186,7 @@ def _initial_dataset(
 
         max_return = max_price / closes - 1.0
         min_return = min_price / closes - 1.0
+        horizon_close_return = horizon_close_price / closes - 1.0
         frame = pd.DataFrame(
             {
                 "anchor_timestamp_ms": timestamps,
@@ -194,8 +197,10 @@ def _initial_dataset(
                 "lower_barrier_price": lower_barrier,
                 "max_price": max_price,
                 "min_price": min_price,
+                "horizon_close_price": horizon_close_price,
                 "max_return": max_return,
                 "min_return": min_return,
+                "horizon_close_return": horizon_close_return,
                 "label": labels,
                 "touch_timestamp_ms": touch_timestamp,
                 "touch_price": touch_price,
@@ -235,8 +240,10 @@ def _row_from_index(
             "lower_barrier_price": anchor_price * (1.0 + config.lower_return),
             "max_price": None,
             "min_price": None,
+            "horizon_close_price": None,
             "max_return": None,
             "min_return": None,
+            "horizon_close_return": None,
             "label": BarrierLabel.INCOMPLETE.value,
             "touch_timestamp_ms": None,
             "touch_price": None,
@@ -255,6 +262,12 @@ def _row_from_index(
         cadence_ms=config.cadence_ms,
     )
     horizon_end_ms = anchor_timestamp_ms + horizon_ms
+    horizon_close_price = (
+        points[index_by_timestamp[horizon_end_ms]].close
+        if horizon_end_ms in index_by_timestamp
+        and result.label is not BarrierLabel.INCOMPLETE
+        else None
+    )
     status = (
         "PENDING"
         if horizon_end_ms > latest_timestamp_ms
@@ -279,8 +292,14 @@ def _row_from_index(
             if result.max_adverse_excursion is None
             else anchor_price * (1.0 + result.max_adverse_excursion)
         ),
+        "horizon_close_price": horizon_close_price,
         "max_return": result.max_favorable_excursion,
         "min_return": result.max_adverse_excursion,
+        "horizon_close_return": (
+            None
+            if horizon_close_price is None
+            else (horizon_close_price / anchor_price) - 1.0
+        ),
         "label": result.label.value,
         "touch_timestamp_ms": result.touch_timestamp_ms,
         "touch_price": result.touch_price,

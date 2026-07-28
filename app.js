@@ -44,15 +44,15 @@ const MESSAGE_LABELS = {
   real_data_and_features_ready_for_model_gates: "اكتمل تجهيز البيانات والخصائص لبوابات التدريب.",
   building_observed_future_excursion_targets_through_8h: "استخراج أعلى وأدنى حركة مرصودة داخل كل أفق حتى 8 ساعات.",
   model_a_extended_horizon_targets_ready: "اكتملت أهداف Model A لجميع الآفاق الجديدة.",
-  training_first_touch_independent_horizon_challengers: "اختبار كل أفق في Model B بصورة مستقلة عبر فترات زمنية محمية.",
+  training_joint_hourly_competing_risk_model: "تدريب نموذج واحد مشترك لاتجاه اللمس وساعة الوصول خلال 8 ساعات.",
   training_future_excursion_independent_horizon_challengers: "اختبار كل أفق في Model A بصورة مستقلة.",
   model_b_all_horizons_wait: "لم يجتز أي أفق في Model B البوابة الحالية.",
-  model_b_independent_horizon_gates_evaluated: "اجتازت بعض الآفاق أو كلها بوابات Model B المستقلة.",
+  joint_hourly_competing_risk_model_ready: "أصبح توزيع اتجاه اللمس وساعة الوصول المتسق جاهزًا.",
   model_a_all_horizons_wait: "لم يجتز أي أفق في Model A البوابة الحالية.",
   model_a_challengers_rejected_existing_horizons_retained: "رُفضت التحديات الجديدة واحتُفظ بالآفاق المعتمدة سابقًا.",
   model_a_independent_horizon_gates_evaluated: "اجتازت بعض الآفاق أو كلها بوابات Model A المستقلة.",
-  creating_model_b_predictions_for_available_horizons: "إنشاء احتمالات Model B للآفاق المعتمدة فقط.",
-  model_b_available_horizon_predictions_stored: "حُفظت احتمالات Model B للآفاق المعتمدة.",
+  creating_coherent_joint_first_touch_timeline: "إنشاء تايم لاين احتمالات متسق من توزيع واحد.",
+  coherent_joint_first_touch_timeline_stored: "حُفظ تايم لاين أول وصول المتسق.",
   creating_future_excursion_predictions_for_available_horizons: "إنشاء نطاقات Model A للآفاق المعتمدة فقط.",
   model_a_available_horizon_predictions_stored: "حُفظت نطاقات Model A للآفاق المعتمدة.",
   maturing_eligible_model_b_predictions: "مطابقة التوقعات التي انتهى أفقها مع المسار الحقيقي.",
@@ -63,9 +63,9 @@ const MESSAGE_LABELS = {
 };
 
 const REASON_LABELS = {
-  both_model_independent_horizon_gates_pending: "بوابات الآفاق المستقلة للنموذجين ما زالت قيد التحقق",
+  both_model_independent_horizon_gates_pending: "بوابتا النموذج المشترك والمسار السعري ما زالتا قيد التحقق",
   dual_models_all_horizons_research_monitoring_only: "كل آفاق النموذجين جاهزة للمراقبة البحثية فقط",
-  dual_models_some_independent_horizons_ready_others_wait: "بعض آفاق النموذجين جاهزة، والبقية في الانتظار",
+  dual_models_some_independent_horizons_ready_others_wait: "جزء من التوقع السعري أو الاتجاهي جاهز، والبقية في الانتظار",
   model_a_some_horizons_ready_model_b_wait: "بعض آفاق Model A جاهزة، ولا يوجد أفق معتمد في Model B",
   model_b_some_horizons_ready_model_a_wait: "بعض آفاق Model B جاهزة، ولا يوجد أفق معتمد في Model A",
   model_b_independent_walk_forward_event_support_wait: "لا توجد صدمات مستقلة كافية في عدة فترات اختبار",
@@ -77,7 +77,7 @@ const REASON_LABELS = {
   legacy_first_touch_gate_or_horizon_set_invalidated: "أُبطلت النسخة القديمة لأنها لا تشمل مجموعة الآفاق والبوابة الحالية",
   no_directionally_valid_first_touch_horizon: "لا يوجد أفق في Model B اجتاز البوابة",
   no_valid_adaptive_shock_horizon: "لا يوجد أفق في Model A اجتاز بوابة التغطية",
-  report_matches_current_independent_horizon_gate: "التقرير مطابق لبوابات الآفاق الحالية",
+  report_matches_current_independent_horizon_gate: "التقرير مطابق لبوابات الإصدار السابق",
   report_was_generated_by_an_older_gate_or_training_is_still_running: "التقرير قديم أو أن التدريب الجديد لم يكتمل بعد",
   insufficient_directional_event_test_support: "الاختبار الأخير لا يحتوي حالات اتجاهية كافية",
   insufficient_high_confidence_directional_predictions: "لا توجد توقعات اتجاهية عالية الثقة بعدد كافٍ",
@@ -96,6 +96,12 @@ const REASON_LABELS = {
   "2pct_touch_probability_too_low_within_available_hours": "احتمال بلوغ ±2% خلال الساعات المتاحة منخفض",
   directional_edge_too_small: "الفارق بين احتمال الصعود والهبوط غير كافٍ",
   directional_2pct_first_touch_edge: "الاتجاه المرجح وفق أول وصول إلى ±2%",
+  joint_direction_and_price_path_models_pending: "نموذجا المسار السعري والاتجاه المشترك لم يكملا التدريب بعد",
+  joint_first_touch_forecast_available_advisory_wait: "التوقع الاحتمالي متاح، لكن بوابة القرار العملي لم تجتز بعد",
+  validated_joint_competing_risk_signal: "إشارة النموذج المشترك اجتازت سياسة القرار المختبرة زمنيًا",
+  validated_policy_thresholds_not_met_now: "النموذج صالح لكن قراءة السوق الحالية دون عتبات القرار",
+  no_joint_competing_risk_forecast_available: "لم يكتمل تدريب نموذج اتجاه وساعة الوصول المشترك بعد",
+  report_matches_current_joint_competing_risk_gate: "التقرير مطابق لنموذج المخاطر المتنافسة الحالي",
 };
 
 function reasonLabel(value) {
@@ -132,6 +138,79 @@ function count(value) {
   return Number(value || 0).toLocaleString("ar-SA");
 }
 
+function renderPricePathChart(forecast = {}) {
+  const svg = $("pricePathChart");
+  if (!svg) return;
+  const anchor = Number(forecast.anchor_price);
+  const rows = Array.isArray(forecast.timeline) ? forecast.timeline : [];
+  const projected = rows
+    .filter((row) =>
+      Number.isFinite(Number(row.predicted_close_price_q05)) &&
+      Number.isFinite(Number(row.predicted_close_price_q50)) &&
+      Number.isFinite(Number(row.predicted_close_price_q95)))
+    .map((row) => ({
+      hour: Number(row.hour),
+      low: Number(row.predicted_close_price_q05),
+      mid: Number(row.predicted_close_price_q50),
+      high: Number(row.predicted_close_price_q95),
+    }));
+  if (!Number.isFinite(anchor) || projected.length === 0) {
+    svg.innerHTML = '<text x="480" y="165" text-anchor="middle" class="chart-empty">لا يوجد مسار سعري صالح بعد</text>';
+    return;
+  }
+
+  const points = [{ hour: 0, low: anchor, mid: anchor, high: anchor }, ...projected];
+  const targets = [Number(forecast.up_target_price), Number(forecast.down_target_price)]
+    .filter(Number.isFinite);
+  const values = points.flatMap((point) => [point.low, point.mid, point.high]).concat(targets);
+  let minimum = Math.min(...values);
+  let maximum = Math.max(...values);
+  const rawSpan = maximum - minimum;
+  const padding = rawSpan > 0 ? rawSpan * 0.12 : anchor * 0.01;
+  minimum -= padding;
+  maximum += padding;
+  const width = 960;
+  const height = 320;
+  const left = 72;
+  const right = 24;
+  const top = 22;
+  const bottom = 42;
+  const plotWidth = width - left - right;
+  const plotHeight = height - top - bottom;
+  const x = (hour) => left + (hour / 8) * plotWidth;
+  const y = (value) => top + ((maximum - value) / (maximum - minimum)) * plotHeight;
+  const path = (items, key) => items
+    .map((point, index) => `${index ? "L" : "M"} ${x(point.hour).toFixed(1)} ${y(point[key]).toFixed(1)}`)
+    .join(" ");
+  const band = [
+    ...points.map((point) => `${x(point.hour).toFixed(1)},${y(point.high).toFixed(1)}`),
+    ...[...points].reverse().map((point) => `${x(point.hour).toFixed(1)},${y(point.low).toFixed(1)}`),
+  ].join(" ");
+  const horizontalGrid = Array.from({ length: 5 }, (_, index) => {
+    const value = maximum - ((maximum - minimum) * index / 4);
+    const py = y(value);
+    return `<line x1="${left}" y1="${py}" x2="${width - right}" y2="${py}" class="chart-grid"/>
+      <text x="${left - 10}" y="${py + 4}" text-anchor="end" class="chart-axis-label">${price(value)}</text>`;
+  }).join("");
+  const hourLabels = Array.from({ length: 9 }, (_, hour) =>
+    `<text x="${x(hour)}" y="${height - 14}" text-anchor="middle" class="chart-axis-label">${hour === 0 ? "الآن" : `${hour}س`}</text>`
+  ).join("");
+  const targetLine = (value, className) => Number.isFinite(value)
+    ? `<line x1="${left}" y1="${y(value)}" x2="${width - right}" y2="${y(value)}" class="${className}"/>`
+    : "";
+  const circles = points.map((point) =>
+    `<circle cx="${x(point.hour)}" cy="${y(point.mid)}" r="5" class="chart-point ${point.hour === 0 ? "chart-anchor" : ""}">
+      <title>${point.hour === 0 ? "الآن" : `بعد ${point.hour} ساعة`}: ${price(point.mid)}</title>
+    </circle>`
+  ).join("");
+  svg.innerHTML = `${horizontalGrid}${hourLabels}
+    ${targetLine(Number(forecast.up_target_price), "chart-target-up")}
+    ${targetLine(Number(forecast.down_target_price), "chart-target-down")}
+    <polygon points="${band}" class="chart-band"/>
+    <path d="${path(points, "mid")}" class="chart-path"/>
+    ${circles}`;
+}
+
 function setConnection(mode, text) {
   $("connectionDot").className = `dot ${mode}`;
   $("connectionStatus").textContent = text;
@@ -152,6 +231,9 @@ function renderDirectionalForecast(forecast = {}) {
   $("decisionUpTarget").textContent = price(forecast.up_target_price);
   $("decisionDownTarget").textContent = price(forecast.down_target_price);
   $("decisionPredictedPrice").textContent = price(forecast.predicted_target_price);
+  $("decisionClose8h").textContent = price(forecast.predicted_close_price_8h_q50);
+  $("decisionHigh8h").textContent = price(forecast.predicted_high_price_8h_q50);
+  $("decisionLow8h").textContent = price(forecast.predicted_low_price_8h_q50);
   $("decisionConfidence").textContent = pct(forecast.directional_probability);
   $("decisionEventProbability").textContent = pct(forecast.event_probability);
   $("decisionTouchWindow").textContent = forecast.expected_touch_horizon_minutes
@@ -170,18 +252,20 @@ function renderDirectionalForecast(forecast = {}) {
   }
 
   const timeline = Array.isArray(forecast.timeline) ? forecast.timeline : [];
+  renderPricePathChart(forecast);
   $("directionalTimelineBody").innerHTML = timeline.length
     ? timeline.map((row) => `
       <tr>
         <td>${horizonLabel(Number(row.horizon_minutes))}</td>
+        <td>${price(row.predicted_close_price_q05)}</td>
+        <td><strong>${price(row.predicted_close_price_q50)}</strong></td>
+        <td>${price(row.predicted_close_price_q95)}</td>
         <td class="positive">${pct(row.p_up_first_by_horizon)}</td>
         <td class="negative">${pct(row.p_down_first_by_horizon)}</td>
-        <td>${pct(row.p_no_touch_by_horizon)}</td>
         <td>${row.directional_bias || "—"}</td>
-        <td>${price(row.predicted_high_price_q50)}</td>
-        <td>${price(row.predicted_low_price_q50)}</td>
+        <td>${price(row.predicted_high_price_q50)} / ${price(row.predicted_low_price_q50)}</td>
       </tr>`).join("")
-    : '<tr><td colspan="7" class="empty">لا يوجد توقع ساعي صالح بعد</td></tr>';
+    : '<tr><td colspan="8" class="empty">لا يوجد توقع ساعي صالح بعد</td></tr>';
 
   const basis = forecast.training_basis || {};
   if (basis.requested_history_days) {
@@ -216,6 +300,15 @@ function horizonReport(report, horizon) {
 
 function directionalSupport(report, horizon) {
   const current = horizonReport(report, horizon);
+  const joint = report?._joint || {};
+  const jointCounts = joint.class_counts || {};
+  const jointUp = Object.entries(jointCounts)
+    .filter(([label]) => label.startsWith("UP_H"))
+    .reduce((sum, [, value]) => sum + Number(value || 0), 0);
+  const jointDown = Object.entries(jointCounts)
+    .filter(([label]) => label.startsWith("DOWN_H"))
+    .reduce((sum, [, value]) => sum + Number(value || 0), 0);
+  const jointGate = joint.metrics?.advisory_gate || {};
   const metrics = current.metrics || {};
   const explicit = metrics.directional_test_support || {};
   const perClass = metrics.per_class || {};
@@ -223,14 +316,14 @@ function directionalSupport(report, horizon) {
   const aggregate = walkForward.aggregate_event_support || {};
   const clusters = walkForward.aggregate_independent_event_clusters || {};
   return {
-    up: Number(explicit.UP_02 ?? aggregate.UP_02 ?? perClass.UP_02?.support ?? 0),
-    down: Number(explicit.DOWN_02 ?? aggregate.DOWN_02 ?? perClass.DOWN_02?.support ?? 0),
+    up: Number(explicit.UP_02 ?? aggregate.UP_02 ?? perClass.UP_02?.support ?? jointUp),
+    down: Number(explicit.DOWN_02 ?? aggregate.DOWN_02 ?? perClass.DOWN_02?.support ?? jointDown),
     upClusters: Number(clusters.UP_02 || 0),
     downClusters: Number(clusters.DOWN_02 || 0),
     eligibleFolds: Number(walkForward.eligible_fold_count || 0),
     foldCount: Number(walkForward.fold_count || 0),
-    reason: current.reason || report?._meta?.reason || "no_first_touch_training_report",
-    status: current.status || report?._meta?.status || "WAIT",
+    reason: current.reason || jointGate.reason || report?._meta?.reason || "no_first_touch_training_report",
+    status: current.status || joint.status || report?._meta?.status || "WAIT",
   };
 }
 
@@ -239,7 +332,7 @@ function touchWaitCard(horizon, report = {}, platformReason = "") {
   const reason = evidence.reason || platformReason;
   return `
     <article class="horizon-model-card wait-card">
-      <header><span>${horizonLabel(horizon)}</span><strong>WAIT — INDEPENDENT GATE</strong></header>
+      <header><span>${horizonLabel(horizon)}</span><strong>WAIT — JOINT GATE</strong></header>
       <dl>
         <div><dt>صفوف +2% / −2%</dt><dd>${count(evidence.up)} / ${count(evidence.down)}</dd></div>
         <div><dt>صدمات مستقلة +2% / −2%</dt><dd>${count(evidence.upClusters)} / ${count(evidence.downClusters)}</dd></div>

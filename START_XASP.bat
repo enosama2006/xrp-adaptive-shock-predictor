@@ -46,7 +46,7 @@ if not defined XASP_BOOTSTRAP_START_MS goto :error
 echo.
 echo [XASP] Activating governed +2%% / -2%% target definition...
 echo [XASP] Raw Binance price history is preserved; stale labels, models, and predictions are invalidated.
-"%PYTHON%" -m xasp.target_definition --data-dir data --models-dir models --reports-dir reports
+"%PYTHON%" -c "from xasp.target_definition import main; main()" --data-dir data --models-dir models --reports-dir reports
 if errorlevel 1 goto :verification_error
 
 if /I "%XASP_EXPAND_HISTORY%"=="1" (

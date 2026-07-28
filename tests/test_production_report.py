@@ -30,6 +30,7 @@ def test_production_report_uses_only_matured_observed_predictions() -> None:
         {
             "timestamp_ms": [0, 60_000, 120_000],
             "price": [100.0, 105.0, 100.0],
+            "close": [100.0, 105.0, 100.0],
             "high": [100.0, 111.0, 102.0],
             "low": [100.0, 99.0, 98.0],
         }
@@ -46,6 +47,9 @@ def test_production_report_uses_only_matured_observed_predictions() -> None:
                 "min_return_q05": -0.03,
                 "min_return_q50": -0.02,
                 "min_return_q95": 0.00,
+                "close_return_q05": -0.01,
+                "close_return_q50": 0.00,
+                "close_return_q95": 0.01,
             }
         ]
     )
@@ -61,6 +65,8 @@ def test_production_report_uses_only_matured_observed_predictions() -> None:
     assert report["future_envelope"]["evaluated_rows"] == 1
     assert report["future_envelope"]["max_interval_coverage"] == 1.0
     assert report["future_envelope"]["min_interval_coverage"] == 1.0
+    assert report["future_envelope"]["close_interval_coverage"] == 1.0
+    assert report["future_envelope"]["per_horizon"]["2"]["close_median_mae"] == 0.0
     assert report["trading_readiness"] == "WAIT"
 
 

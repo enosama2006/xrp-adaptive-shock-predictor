@@ -16,9 +16,12 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 
+from .competing_risk import (
+    COMPETING_RISK_GATE_VERSION,
+    COMPETING_RISK_MODEL_KIND,
+)
 from .directional_forecast import build_directional_forecast
 from .file_lock import InterProcessFileLock
-from .first_touch_v4 import FIRST_TOUCH_GATE_VERSION
 from .governance_routes import build_governance_router
 from .horizons import (
     RESEARCH_HORIZON_KEYS,
@@ -58,6 +61,8 @@ def _json_object(path: Path) -> dict[str, Any]:
 def _bundle_horizons(bundle: dict[str, Any] | None) -> list[int]:
     if bundle is None:
         return []
+    if bundle.get("joint_model") is not None:
+        return sorted(int(value) for value in bundle.get("available_horizons", ()))
     return sorted(int(value) for value in bundle.get("models", {}))
 
 
@@ -101,7 +106,7 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
 
     app = FastAPI(
         title="XASP Real Data Platform",
-        version="1.9.0",
+        version="2.0.0",
         lifespan=lifespan,
     )
     app.include_router(build_governance_router(platform))
@@ -114,7 +119,7 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
                     "status": "WAIT",
                     "reason": "no_first_touch_training_report",
                     "is_current": False,
-                    "current_gate_methodology_version": FIRST_TOUCH_GATE_VERSION,
+                    "current_gate_methodology_version": COMPETING_RISK_GATE_VERSION,
                     "target_definition_version": TARGET_DEFINITION_VERSION,
                     "horizon_set_version": RESEARCH_HORIZON_SET_VERSION,
                     "configured_horizons": list(RESEARCH_HORIZONS_MINUTES),
@@ -152,7 +157,7 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
         )
         current = (
             bool(horizons)
-            and versions == [FIRST_TOUCH_GATE_VERSION]
+            and versions == [COMPETING_RISK_GATE_VERSION]
             and target_versions == [TARGET_DEFINITION_VERSION]
         )
         statuses = {key: str(report.get("status", "WAIT")) for key, report in horizons.items()}
@@ -165,12 +170,12 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
         meta = {
             "status": "CURRENT" if current else "STALE" if horizons else "WAIT",
             "reason": (
-                "report_matches_current_independent_horizon_gate"
+                "report_matches_current_joint_competing_risk_gate"
                 if current
                 else "report_was_generated_by_an_older_gate_or_training_is_still_running"
             ),
             "is_current": current,
-            "current_gate_methodology_version": FIRST_TOUCH_GATE_VERSION,
+            "current_gate_methodology_version": COMPETING_RISK_GATE_VERSION,
             "target_definition_version": TARGET_DEFINITION_VERSION,
             "horizon_set_version": RESEARCH_HORIZON_SET_VERSION,
             "configured_horizons": list(RESEARCH_HORIZONS_MINUTES),
@@ -185,7 +190,12 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
             "runtime_state": platform.status.state,
             "runtime_reason": platform.status.reason,
         }
-        return {"_meta": meta, **horizons}
+        joint = raw.get("_joint")
+        return {
+            "_meta": meta,
+            **({"_joint": joint} if isinstance(joint, dict) else {}),
+            **horizons,
+        }
 
     def active_first_touch_ledger() -> Any:
         return platform._active_first_touch_ledger()
@@ -276,17 +286,19 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
             },
             "first_touch_02": {
                 "display_name": f"±{TARGET_PERCENT}% First-Touch Model",
-                "technical_name": "calibrated multiclass first-touch classifier",
+                "technical_name": (
+                    "joint calibrated hourly competing-risk event-time classifier"
+                ),
                 "purpose": (
                     f"Estimate whether +{TARGET_PERCENT}%, -{TARGET_PERCENT}%, "
-                    "or neither is reached first "
-                    "by each cumulative hourly deadline through eight hours."
+                    "or neither is reached first, and in which hour, from one coherent "
+                    "eight-hour event-time distribution."
                 ),
                 "available": bool(touch_available),
                 "available_horizons": touch_available,
                 "waiting_horizons": [h for h in configured if h not in touch_available],
                 "availability_reason": (
-                    "one_or_more_independent_directional_horizon_gates_passed"
+                    "joint_competing_risk_forecast_available"
                     if touch_available
                     else platform.status.reason
                 ),
@@ -297,17 +309,17 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
                     None if touch_bundle is None else touch_bundle.get("trained_at_ms")
                 ),
                 "training_rows": touch_training_rows,
-                "gate_methodology_version": FIRST_TOUCH_GATE_VERSION,
+                "gate_methodology_version": COMPETING_RISK_GATE_VERSION,
+                "model_kind": COMPETING_RISK_MODEL_KIND,
                 "target_definition_version": TARGET_DEFINITION_VERSION,
                 "target_up_return": TARGET_UP_RETURN,
                 "target_down_return": TARGET_DOWN_RETURN,
                 "training_report_current": bool(touch_meta.get("is_current", False)),
                 "training_report_status": touch_meta.get("status", "WAIT"),
                 "gate": (
-                    "Each horizon needs multiple purged untouched periods with sufficient "
-                    "independent UP_02 and DOWN_02 event clusters, then at least 85% empirical "
-                    "precision for high-confidence directional predictions. NO_EVENT cannot "
-                    "pass the directional gate."
+                    "One joint event-time distribution is fitted with an eight-hour purge. "
+                    "A directional policy is selected on validation data and must pass the "
+                    "same support and precision rules on untouched chronological test data."
                 ),
                 "endpoint": "/api/models/first-touch/latest",
                 "training_report_endpoint": "/api/reports/training/first-touch",
@@ -357,7 +369,7 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
             "adaptive_shock_available_horizons": shock_horizons,
             "first_touch_model_available": bool(touch_horizons),
             "adaptive_shock_model_available": bool(shock_horizons),
-            "first_touch_gate_methodology_version": FIRST_TOUCH_GATE_VERSION,
+            "first_touch_gate_methodology_version": COMPETING_RISK_GATE_VERSION,
             "storage": storage,
             "ready_for_first_touch_research": bool(touch_horizons),
             "ready_for_adaptive_shock_research": bool(shock_horizons),
@@ -382,10 +394,11 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
             payload["adaptive_shock_available_horizons"]
         )
         payload["first_touch_model_available"] = bool(payload["first_touch_available_horizons"])
-        payload["first_touch_gate_methodology_version"] = FIRST_TOUCH_GATE_VERSION
-        payload["required_empirical_confidence"] = 0.85
+        payload["first_touch_gate_methodology_version"] = COMPETING_RISK_GATE_VERSION
+        payload["required_empirical_confidence"] = None
         payload["confidence_note"] = (
-            "85% is an empirical out-of-sample gate, not a guarantee of future correctness"
+            "The action threshold is selected on validation data and verified unchanged "
+            "on an untouched chronological test; it is not a guarantee."
         )
         return payload
 
@@ -401,7 +414,9 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
                 "Each horizon inspects every completed one-minute candle after the anchor "
                 "through the inclusive horizon end."
             ),
-            "independent_gates": True,
+            "independent_gates": False,
+            "joint_competing_risk_model": True,
+            "price_path_points": 8,
             "trading_promoted": False,
         }
 
@@ -528,6 +543,10 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
     @app.get("/styles.css")
     def stylesheet() -> FileResponse:
         return FileResponse(web_root / "styles.css", media_type="text/css")
+
+    @app.get("/timeline.css")
+    def timeline_stylesheet() -> FileResponse:
+        return FileResponse(web_root / "timeline.css", media_type="text/css")
 
     return app
 

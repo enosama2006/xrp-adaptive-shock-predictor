@@ -146,7 +146,7 @@ class EnvelopeEngineV2:
         target_stats = self.target_store.stats()
         bundle: dict[str, Any] = {
             "model_version": (
-                f"real-envelope-2pct-context-independent-horizons-{int(time.time())}"
+                f"real-hourly-price-path-and-envelope-{int(time.time())}"
             ),
             "trained_at_ms": int(time.time() * 1000),
             "feature_names": feature_names,
@@ -157,7 +157,7 @@ class EnvelopeEngineV2:
             "available_horizons": sorted(models),
             "promoted_horizons_this_run": promoted,
             "rejected_horizons_this_run": rejected,
-            "source": "observed_binance_ohlc_only",
+            "source": "observed_binance_ohlc_hourly_close_path",
             "required_empirical_interval_coverage": 0.85,
             "target_definition_version": TARGET_DEFINITION_VERSION,
             "target_up_return": TARGET_UP_RETURN,
@@ -203,8 +203,16 @@ class EnvelopeEngineV2:
                     estimates["future_min_return_q95"],
                 ]
             )
+            close_values = sorted(
+                [
+                    estimates["future_close_return_q05"],
+                    estimates["future_close_return_q50"],
+                    estimates["future_close_return_q95"],
+                ]
+            )
             max_low, max_mid, max_high = max_values
             min_low, min_mid, min_high = min_values
+            close_low, close_mid, close_high = close_values
             output.append(
                 {
                     "issued_at_ms": issued_at_ms,
@@ -218,8 +226,14 @@ class EnvelopeEngineV2:
                     "min_return_q05": min_low,
                     "min_return_q50": min_mid,
                     "min_return_q95": min_high,
+                    "close_return_q05": close_low,
+                    "close_return_q50": close_mid,
+                    "close_return_q95": close_high,
                     "max_price_q50": anchor_price * (1.0 + max_mid),
                     "min_price_q50": anchor_price * (1.0 + min_mid),
+                    "close_price_q05": anchor_price * (1.0 + close_low),
+                    "close_price_q50": anchor_price * (1.0 + close_mid),
+                    "close_price_q95": anchor_price * (1.0 + close_high),
                     "target_up_return": TARGET_UP_RETURN,
                     "target_up_price": anchor_price * (1.0 + TARGET_UP_RETURN),
                     "target_up_reached_by_median": max_mid >= TARGET_UP_RETURN,

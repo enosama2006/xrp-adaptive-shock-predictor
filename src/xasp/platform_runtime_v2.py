@@ -41,6 +41,8 @@ class RealDataPlatformV2(MemorySafeExtendedHorizonPlatform):
     def _available_horizons(bundle: dict[str, Any] | None) -> set[int]:
         if bundle is None:
             return set()
+        if bundle.get("joint_model") is not None:
+            return {int(value) for value in bundle.get("available_horizons", ())}
         return {int(value) for value in bundle.get("models", {})}
 
     def _refresh_research_state(self, *, save: bool = True) -> None:
@@ -57,7 +59,7 @@ class RealDataPlatformV2(MemorySafeExtendedHorizonPlatform):
             self.status.reason = "dual_models_all_horizons_research_monitoring_only"
         elif touch_any and envelope_any:
             self.status.state = "PARTIAL_RESEARCH"
-            self.status.reason = "dual_models_some_independent_horizons_ready_others_wait"
+            self.status.reason = "joint_direction_ready_model_a_partial"
         elif envelope_any:
             self.status.state = "PARTIAL_RESEARCH"
             self.status.reason = "model_a_some_horizons_ready_model_b_wait"
@@ -71,7 +73,7 @@ class RealDataPlatformV2(MemorySafeExtendedHorizonPlatform):
                 "real_data_synced_model_gate_pending",
                 "real_data_synced_directional_model_gate_pending",
             }:
-                self.status.reason = "both_model_independent_horizon_gates_pending"
+                self.status.reason = "joint_direction_and_price_path_models_pending"
         if save:
             self._save_status()
 

@@ -61,12 +61,15 @@ def _complete_envelope_horizons(section: dict[str, Any]) -> None:
         rows = int(payload.get("evaluated_rows", 0))
         max_coverage = payload.get("max_interval_coverage")
         min_coverage = payload.get("min_interval_coverage")
+        close_coverage = payload.get("close_interval_coverage")
         enough = rows >= REQUIRED_ENVELOPE_ROWS_PER_HORIZON
         coverage_passed = (
             max_coverage is not None
             and min_coverage is not None
+            and close_coverage is not None
             and float(max_coverage) >= REQUIRED_MARGINAL_INTERVAL_COVERAGE
             and float(min_coverage) >= REQUIRED_MARGINAL_INTERVAL_COVERAGE
+            and float(close_coverage) >= REQUIRED_MARGINAL_INTERVAL_COVERAGE
         )
         if not enough:
             payload["status"] = "MONITORING"
@@ -136,9 +139,10 @@ def build_production_report(
         report["research_monitoring_readiness"] = "WAIT"
     report["trading_readiness"] = "WAIT"
     report["note"] = (
-        "Every cumulative hourly horizon from 60 through 480 minutes is monitored "
-        "independently. A long horizon may be research-ready while a short rare-event "
-        "horizon remains WAIT. No metric guarantees profit."
+        "One joint competing-risk model governs the cumulative first-touch probabilities, "
+        "while hourly close-price quantiles from 60 through 480 minutes form the forecast "
+        "path. Each price-path horizon is monitored against matured outcomes. No metric "
+        "guarantees profit."
     )
     return report
 

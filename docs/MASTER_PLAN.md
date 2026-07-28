@@ -6,8 +6,12 @@ Updated: 2026-07-23
 
 Build a restart-safe, real-data XRP research platform with two scientifically independent models:
 
-1. **Model A — XRP Adaptive Shock Predictor**: estimate likely future upside/downside excursion ranges for every cumulative hour from 1 through 8 hours.
-2. **Model B — ±2% First-Touch Predictor**: estimate whether +2%, -2%, or neither barrier is reached first by each hourly deadline.
+1. **Model A — XRP Price Path + Adaptive Shock Predictor**: estimate the
+   Q05/Q50/Q95 closing-price path and likely upside/downside excursion ranges
+   for every cumulative hour from 1 through 8 hours.
+2. **Model B — Joint ±2% First-Touch Time Predictor**: estimate one competing-
+   risk distribution over direction and arrival hour, then derive coherent
+   cumulative probabilities for every hourly deadline.
 
 Both models share a governed point-in-time data platform, but each owns its targets, trainer, model artifacts, prediction store, production report, and readiness gate.
 
@@ -21,6 +25,8 @@ The platform must fail closed to `WAIT`. It must never fabricate missing histori
 
 For every horizon:
 
+- `close_return_q05/q50/q95`
+- hourly `close_price_q05/q50/q95`
 - `max_return_q05/q50/q95`
 - `min_return_q05/q50/q95`
 - likely high/low prices
@@ -122,6 +128,7 @@ Acceptance:
 
 For every anchor and horizon, record observed future:
 
+- closing price and closing return at the exact horizon boundary;
 - maximum high and minimum low;
 - maximum/minimum return;
 - time to maximum/minimum where supported;
@@ -153,7 +160,7 @@ Acceptance:
 
 ### Stage 5 — `TRAIN_MODEL_A`
 
-- Train quantile/excursion baselines by horizon.
+- Train hourly-close-path and quantile/excursion baselines by horizon.
 - Use purged chronological train/validation/test partitions.
 - Tune only on train/validation.
 - Evaluate interval coverage, pinball/error metrics, quantile ordering, regime stability, and simple historical baselines.
@@ -162,7 +169,8 @@ Promotion to research-ready requires predefined coverage and stability threshold
 
 ### Stage 6 — `TRAIN_MODEL_B`
 
-- Train unconditional class-rate, calibrated multinomial logistic, and gradient-boosting challengers.
+- Train one calibrated competing-risk event-time baseline and compare it with
+  unconditional class priors.
 - Use purged chronological train/calibration/test partitions.
 - Report class counts, precision, recall, PR-AUC, Brier score, calibration error, and high-confidence empirical precision.
 - Compare with `always NO_EVENT` and other non-ML controls.
