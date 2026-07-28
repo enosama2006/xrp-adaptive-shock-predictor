@@ -29,6 +29,7 @@ from .feature_registry import (
     select_model_feature_names,
 )
 from .features import build_feature_diagnostics, build_price_features, join_anchors_with_features
+from .horizons import RESEARCH_HORIZONS_MINUTES
 from .labeling import CandlePoint
 from .pipeline import (
     IncrementalResearchPipeline,
@@ -42,7 +43,7 @@ from .target_definition import (
     ensure_current_target_definition,
 )
 
-HORIZONS = (15, 30, 45, 60)
+HORIZONS = RESEARCH_HORIZONS_MINUTES
 LABELS = ("UP_02", "DOWN_02", "NO_EVENT")
 
 

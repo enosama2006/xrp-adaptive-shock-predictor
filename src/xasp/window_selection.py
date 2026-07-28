@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import typing
 
+from .horizons import RESEARCH_HORIZONS_MINUTES
+
 QUANTILE_KEYS = ("median_minutes", "p75_minutes", "p90_minutes", "p95_minutes")
 
 
@@ -88,7 +90,7 @@ def select_candidate_windows(
         if passed:
             evidence_candidates.append(horizon)
 
-    configured_model_horizons = {15, 30, 45, 60, 120, 180, 240, 480}
+    configured_model_horizons = set(RESEARCH_HORIZONS_MINUTES)
     longer_supported = [
         horizon for horizon in evidence_candidates if horizon > max(configured_model_horizons)
     ]

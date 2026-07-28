@@ -20,7 +20,7 @@ TARGET_DOWN_RETURN = -0.02
 TARGET_PERCENT = 2
 TARGET_UP_LABEL = "UP_02"
 TARGET_DOWN_LABEL = "DOWN_02"
-TARGET_DEFINITION_VERSION = "xrp-symmetric-first-touch-2pct-v1"
+TARGET_DEFINITION_VERSION = "xrp-symmetric-first-touch-2pct-hourly-8h-v2"
 TARGET_DEFINITION_FILENAME = "target_definition.json"
 
 
@@ -29,8 +29,9 @@ class TargetDefinition:
     version: str = TARGET_DEFINITION_VERSION
     upper_return: float = TARGET_UP_RETURN
     lower_return: float = TARGET_DOWN_RETURN
-    primary_objective: str = "detect_upside_move_of_at_least_2_percent"
-    comparison_event: str = "downside_move_of_at_least_2_percent"
+    primary_objective: str = "predict_which_2_percent_barrier_is_touched_first"
+    comparison_event: str = "competing_upside_and_downside_first_touch"
+    forecast_semantics: str = "cumulative_hourly_first_touch_through_8_hours"
     first_touch_classes: tuple[str, str, str] = (
         TARGET_UP_LABEL,
         TARGET_DOWN_LABEL,

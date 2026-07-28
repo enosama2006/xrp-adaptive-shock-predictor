@@ -60,6 +60,7 @@ def test_platform_wires_routes_without_network_or_market_fabrication(tmp_path: P
     assert "/api/research/first-passage" in route_paths
     assert "/api/market/latest" in route_paths
     assert "/api/models" in route_paths
+    assert "/api/forecast/directional" in route_paths
     assert "/api/models/first-touch/latest" in route_paths
     assert "/api/models/adaptive-shock/latest" in route_paths
     assert "/api/reports/training/first-touch" in route_paths
@@ -80,6 +81,9 @@ def test_platform_wires_routes_without_network_or_market_fabrication(tmp_path: P
     catalog = _endpoint(app, "/api/models")()
     assert catalog["first_touch_02"]["target_up_return"] == 0.02
     assert catalog["adaptive_shock"]["target_up_return"] == 0.02
+    directional = _endpoint(app, "/api/forecast/directional")()
+    assert directional["decision"] == "WAIT"
+    assert directional["configured_horizons_minutes"] == list(RESEARCH_HORIZONS_MINUTES)
 
 
 def test_second_server_cannot_use_the_same_data_directory(
@@ -176,3 +180,5 @@ def test_windows_launcher_is_pinned_to_requested_port() -> None:
     assert "xasp.platform_api" in launcher
     assert "xasp.first_passage_discovery" in launcher
     assert "xasp.target_definition" in launcher
+    assert 'XASP_HISTORY_DAYS set "XASP_HISTORY_DAYS=1825"' in launcher
+    assert 'XASP_EXPAND_HISTORY set "XASP_EXPAND_HISTORY=1"' in launcher

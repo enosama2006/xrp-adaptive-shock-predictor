@@ -52,6 +52,36 @@ def test_volume_is_log_compressed_and_raw_volume_is_not_a_model_feature() -> Non
     assert np.isfinite(result["log1p_volume"]).all()
 
 
+def test_directional_indicators_are_causal_and_ohlc_aware() -> None:
+    rows = 180
+    base = 1.0 + np.sin(np.arange(rows) / 9.0) * 0.02
+    prices = pd.DataFrame(
+        {
+            "timestamp_ms": np.arange(rows, dtype=np.int64) * 60_000,
+            "price": base,
+            "open": base - 0.001,
+            "high": base + 0.003,
+            "low": base - 0.003,
+        }
+    )
+
+    result = build_price_features(prices)
+
+    for name in (
+        "rsi_14m",
+        "rsi_60m",
+        "atr_percent_14m",
+        "atr_percent_60m",
+        "bollinger_position_20m",
+        "bollinger_bandwidth_20m",
+    ):
+        assert name in result.columns
+        assert result[name].iloc[-1] == pytest.approx(float(result[name].iloc[-1]))
+    assert "open" not in result.columns
+    assert "high" not in result.columns
+    assert "low" not in result.columns
+
+
 def test_feature_diagnostics_include_distribution_and_histogram() -> None:
     prices = pd.DataFrame(
         {

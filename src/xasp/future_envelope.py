@@ -16,9 +16,10 @@ from sklearn.impute import SimpleImputer
 from sklearn.metrics import mean_absolute_error, mean_pinball_loss
 from sklearn.pipeline import Pipeline
 
+from .horizons import RESEARCH_HORIZONS_MINUTES
 from .target_definition import TARGET_DEFINITION_VERSION, TARGET_DOWN_RETURN, TARGET_UP_RETURN
 
-HORIZONS = (15, 30, 45, 60)
+HORIZONS = RESEARCH_HORIZONS_MINUTES
 QUANTILES = (0.05, 0.50, 0.95)
 
 

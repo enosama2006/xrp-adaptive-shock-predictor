@@ -25,7 +25,7 @@ Nothing is complete merely because a file or dashboard box exists.
 
 ## G1 — Historical and live data lifecycle
 
-- [-] Backfill at least 365 days of `XRPUSDT` one-minute completed candles.
+- [-] Backfill 1,825 days of `XRPUSDT` one-minute completed candles by default.
 - [ ] Normalize Binance close timestamps to exact completed-candle availability boundaries.
 - [ ] Migrate legacy local timestamps ending in `59,999` safely and idempotently.
 - [ ] Persist backfill in restart-safe pages/chunks rather than only after full materialization.
@@ -39,7 +39,7 @@ Nothing is complete merely because a file or dashboard box exists.
 
 ### G1 acceptance
 
-- [ ] >=365 days stored or source limitation explicitly documented.
+- [ ] >=1,825 days stored or source limitation explicitly documented.
 - [ ] >=99.5% justified minute coverage.
 - [ ] no silent duplicates, backward timestamps, or unresolved gaps.
 - [ ] startup after interruption resumes from the correct watermark.
@@ -96,7 +96,7 @@ Nothing is complete merely because a file or dashboard box exists.
 ## G3 — Model B target correctness
 
 - [x] Define `UP_02`, `DOWN_02`, `NO_EVENT`, `AMBIGUOUS`, and `INCOMPLETE`.
-- [x] Create 15/30/45/60-minute anchors.
+- [x] Create cumulative 60/120/180/240/300/360/420/480-minute anchors.
 - [ ] Use candle high/low for barrier touches instead of close-only points.
 - [ ] Mark same-candle dual hit as `AMBIGUOUS` unless finer ordering is available.
 - [ ] Require contiguous minute coverage across the full label horizon.
@@ -183,7 +183,7 @@ Nothing is complete merely because a file or dashboard box exists.
 ## G8 — Product interface
 
 - [x] Separate Model A and Model B visually.
-- [x] Show independent outputs for 15/30/45/60 minutes.
+- [x] Show one LONG/SHORT/WAIT summary and the cumulative hourly timeline.
 - [ ] Show bootstrap coverage and progress.
 - [ ] Show independent model state, version, training range, and sample count.
 - [ ] Show model-specific accuracy/coverage reports.

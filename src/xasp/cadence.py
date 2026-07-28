@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .horizons import RESEARCH_HORIZONS_MINUTES
+
 
 @dataclass(frozen=True, slots=True)
 class CadencePolicy:
@@ -11,7 +13,7 @@ class CadencePolicy:
 
     feature_refresh_ms: int = 5_000
     prediction_cadence_ms: int = 60_000
-    horizons_minutes: tuple[int, ...] = (15, 30, 45, 60)
+    horizons_minutes: tuple[int, ...] = RESEARCH_HORIZONS_MINUTES
 
     def __post_init__(self) -> None:
         if self.feature_refresh_ms <= 0:

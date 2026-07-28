@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <meta name="description" content="XASP — منصّة بحثية تفصل نموذج الصدمة عن نموذج الوصول الأول ±2%." />
-  <title>XASP — Dual Model Research Platform</title>
+  <meta name="description" content="XASP — توقع اتجاه أول وصول إلى +2% أو −2% خلال الساعات القادمة." />
+  <title>XASP — Hourly ±2% Direction Forecast</title>
   <link rel="stylesheet" href="styles.css" />
   <link rel="stylesheet" href="/api/lab.css" />
 </head>
@@ -13,8 +13,8 @@
     <header class="hero">
       <div>
         <p class="eyebrow">XRP ADAPTIVE SHOCK PREDICTOR</p>
-        <h1>نموذجان مستقلان، بيانات حقيقية، ونتائج منفصلة بالكامل</h1>
-        <p class="subtitle">تُجمع شموع XRP المكتملة كل دقيقة، ويُبنى تاريخ تدريبي متعدد السنوات قابل للاستئناف والتحقق. يصدر كل نموذج توقعاته وتقاريره الخاصة دون دمج النتائج أو إخفاء حالة عدم الجاهزية.</p>
+        <h1>هل يصل XRP إلى +2% أم −2% أولًا؟</h1>
+        <p class="subtitle">قرار اتجاهي واحد للساعات الثماني القادمة، مبني على خمس سنوات مطلوبة من شموع الدقيقة الحقيقية، مع سعر الهدف واحتمال الاتجاه وتوقيت الوصول المرجح.</p>
         <a class="hero-lab-link" href="/api/model-lab">فتح مختبر النماذج والتحليل ←</a>
       </div>
       <div class="connection-card">
@@ -28,6 +28,40 @@
       <article class="metric-card"><span>سجل الأسعار</span><strong id="priceRows">0</strong><small>شموع دقيقة حقيقية محفوظة</small></article>
       <article class="metric-card"><span>بداية البيانات</span><strong id="dataStart">—</strong><small>قابل للتوسعة حتى خمس سنوات وأكثر</small></article>
       <article class="metric-card"><span>حالة المنصة</span><strong id="platformState" class="wait">WAIT</strong><small id="platformReason">not_started</small></article>
+    </section>
+
+    <section class="panel decision-panel" aria-labelledby="directionalTitle">
+      <div class="decision-heading">
+        <div>
+          <span class="section-kicker">التوقع الرئيسي القابل للقراءة</span>
+          <h2 id="directionalTitle">قرار أول وصول إلى ±2% خلال الساعات القادمة</h2>
+          <p id="directionalExplanation">بانتظار أول توقع صالح من نموذج الوصول الساعي.</p>
+        </div>
+        <strong id="directionalDecision" class="decision-wait">WAIT</strong>
+      </div>
+      <div class="decision-metrics">
+        <div><span>السعر الحالي</span><strong id="decisionAnchorPrice">—</strong></div>
+        <div><span>هدف LONG (+2%)</span><strong id="decisionUpTarget" class="positive">—</strong></div>
+        <div><span>هدف SHORT (−2%)</span><strong id="decisionDownTarget" class="negative">—</strong></div>
+        <div><span>السعر المرجح المستهدف</span><strong id="decisionPredictedPrice">—</strong></div>
+        <div><span>ثقة الاتجاه عند حدوث لمس</span><strong id="decisionConfidence">—</strong></div>
+        <div><span>احتمال حدوث ±2%</span><strong id="decisionEventProbability">—</strong></div>
+        <div><span>نافذة الوصول الأرجح</span><strong id="decisionTouchWindow">—</strong></div>
+        <div><span>المرجع الزمني</span><strong id="decisionTimestamp">—</strong></div>
+      </div>
+      <article class="decision-timeline">
+        <h3>التنبؤ التراكمي ساعةً بساعة</h3>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>بحلول</th><th>+2% أولًا</th><th>−2% أولًا</th><th>لا لمس</th><th>الميل</th><th>أعلى سعر Q50</th><th>أدنى سعر Q50</th></tr></thead>
+            <tbody id="directionalTimelineBody"><tr><td colspan="7" class="empty">لا يوجد توقع صالح بعد</td></tr></tbody>
+          </table>
+        </div>
+      </article>
+      <section class="decision-basis">
+        <strong>ما الذي دُرّب عليه؟</strong>
+        <span id="directionalTrainingBasis">شموع XRP/USDT المكتملة بدقة دقيقة، مع العوائد والزخم والتقلب والحجم وتدفق التداول والمؤشرات الفنية السببية. لا تُستخدم القيمة السوقية تاريخيًا قبل جمعها وتوثيق توقيتها.</span>
+      </section>
     </section>
 
     <section class="panel lifecycle-panel" aria-labelledby="lifecycleTitle">
@@ -74,7 +108,7 @@
         <div>
           <span class="model-number">EMPIRICAL DISCOVERY</span>
           <h2 id="discoveryTitle">استكشاف زمن الوصول إلى ±2%</h2>
-          <p>تحليل وصفي مستقل يسبق تدريب Model B. يقيس زمن الوصول الفعلي، الوسط والوسيط والمنوال والذيل، ويعرض الأرقام حتى عندما تبقى النماذج في WAIT.</p>
+          <p>تحليل وصفي يراجع تاريخيًا أي حاجز لُمِس أولًا وكم استغرق ذلك، ويعرض الأرقام حتى عندما يبقى النموذج في WAIT.</p>
         </div>
         <div class="model-state"><span>الحالة</span><strong id="discoveryState">WAIT</strong><small id="discoveryUpdated">لم يُنشأ التقرير بعد</small></div>
       </div>
@@ -101,7 +135,7 @@
 
     <section class="model-section shock-section">
       <div class="model-header">
-        <div><span class="model-number">MODEL A</span><h2>نموذج الصدمة التكيفي — هدف +2%</h2><p>Adaptive Shock Magnitude Model — يتوقع نطاق الحركة وشدة الصدمة، ويقيّم صراحةً احتمال بلوغ صعود 2% فأكثر من 15 دقيقة حتى 8 ساعات.</p></div>
+        <div><span class="model-number">المكوّن المساند A</span><h2>نطاق السعر المتوقع ساعةً بساعة</h2><p>يقدّر أعلى وأدنى حركة وسعر وسطي متوقع لكل ساعة من الساعة الأولى حتى الثامنة. يُستخدم لشرح النطاق، لا لإصدار اتجاه منفرد وحده.</p></div>
         <div class="model-state"><span>الحالة</span><strong id="shockState">WAIT</strong><small id="shockVersion">لا يوجد نموذج مدرّب</small></div>
       </div>
       <div id="shockHorizonGrid" class="horizon-card-grid"></div>
@@ -113,7 +147,7 @@
 
     <section class="model-section touch-section">
       <div class="model-header">
-        <div><span class="model-number">MODEL B</span><h2>نموذج الوصول الأول ±2%</h2><p>±2% First-Touch Model — يتوقع هل يصل XRP إلى +2% أولًا، أو −2% أولًا، أو لا يصل إلى أي منهما ضمن الأفق.</p></div>
+        <div><span class="model-number">المكوّن الاتجاهي B</span><h2>احتمال +2% مقابل −2% ساعةً بساعة</h2><p>هو مصدر القرار الرئيسي أعلاه: يتوقع هل يصل XRP إلى +2% أولًا، أو −2% أولًا، أو لا يصل إلى أي منهما بحلول نهاية كل ساعة.</p></div>
         <div class="model-state"><span>الحالة</span><strong id="touchState">WAIT</strong><small id="touchVersion">لا يوجد نموذج مدرّب</small></div>
       </div>
       <div id="touchHorizonGrid" class="horizon-card-grid"></div>

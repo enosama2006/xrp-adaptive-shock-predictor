@@ -3,6 +3,8 @@
 The platform does not generate synthetic rows, simulated labels, or heuristic probabilities.
 It downloads public Binance minute data, resumes from the last durable watermark, builds
 first-touch labels, trains only when enough final real rows exist, and otherwise displays WAIT.
+The Windows launcher requests five years (1,825 days) by default and resumes
+older-history expansion from durable checkpoints.
 
 ## Install
 
@@ -56,7 +58,7 @@ Lowering the minimum does not improve scientific validity and does not promote t
 ## Durable files
 
 - `data/prices.parquet`: real XRP minute prices
-- `data/anchors.parquet`: rolling 15/30/45/60-minute labels
+- `data/anchors.parquet`: cumulative hourly first-touch labels from 60 through 480 minutes
 - `data/features.parquet`: causal features
 - `data/state.json`: restart watermarks and counters
 - `data/predictions.parquet`: immutable prediction ledger

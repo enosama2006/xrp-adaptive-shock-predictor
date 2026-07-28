@@ -13,7 +13,7 @@ from typing import Any
 
 import pandas as pd
 
-SCHEMA_VERSION = "market-features-v3-explicit-registry"
+SCHEMA_VERSION = "market-features-v4-hourly-directional-indicators"
 
 # Exact model inputs whose semantics are scale-stable and point-in-time causal.
 _ALLOWED_EXACT = {
@@ -42,6 +42,10 @@ _ALLOWED_PREFIXES = (
     "return_robust_zscore_",
     "momentum_",
     "jump_score_",
+    "rsi_",
+    "atr_percent_",
+    "bollinger_position_",
+    "bollinger_bandwidth_",
     "volume_zscore_",
     "volume_robust_zscore_",
     "quote_volume_zscore_",

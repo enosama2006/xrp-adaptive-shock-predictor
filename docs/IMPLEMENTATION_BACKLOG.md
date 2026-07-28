@@ -29,7 +29,7 @@
 - Record reference price and source watermark.
 
 ### T2.2 Multi-horizon labels
-- Run first-touch labeling for 15/30/45/60 minutes.
+- Run first-touch labeling for cumulative hourly deadlines from 60 through 480 minutes.
 - Store ambiguity, incompleteness, MFE, and MAE.
 
 ### T2.3 Overlap clustering

@@ -1,22 +1,22 @@
-"""Governed research horizons shared by both independent models."""
+"""Governed cumulative hourly horizons shared by both model components."""
 
 from __future__ import annotations
 
 RESEARCH_HORIZONS_MINUTES: tuple[int, ...] = (
-    15,
-    30,
-    45,
     60,
     120,
     180,
     240,
+    300,
+    360,
+    420,
     480,
 )
 RESEARCH_HORIZON_KEYS: tuple[str, ...] = tuple(
     str(value) for value in RESEARCH_HORIZONS_MINUTES
 )
 RESEARCH_HORIZON_SET_VERSION = (
-    "xasp-horizons-15-30-45-60-120-180-240-480-v1"
+    "xasp-cumulative-hourly-horizons-60-120-180-240-300-360-420-480-v2"
 )
 MAX_RESEARCH_HORIZON_MINUTES = max(RESEARCH_HORIZONS_MINUTES)
 MINUTES_PER_DAY = 1_440
