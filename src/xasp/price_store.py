@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import shutil
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -34,6 +35,22 @@ LEGACY_CLOSE_TIME_RESIDUES_MS = (
 )
 LEGACY_PRICE_STORE_SCHEMA_VERSION = 1
 PRICE_STORE_SCHEMA_VERSION = 2
+PartitionRepair = Callable[[str], pd.DataFrame]
+
+
+class NonCanonicalPriceTimestampsError(ValueError):
+    """A legacy price partition needs authoritative source reconstruction."""
+
+    def __init__(self, samples: dict[str, int]) -> None:
+        self.samples = dict(samples)
+        rendered = ", ".join(
+            f"{key}.parquet timestamp_ms={value}"
+            for key, value in sorted(self.samples.items())
+        )
+        super().__init__(
+            "price partition contains a timestamp that is neither a minute "
+            f"boundary nor a Binance closeTime: {rendered}"
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -197,7 +214,11 @@ class PartitionedPriceStore:
         _atomic_write_json(payload, self.manifest_path)
         return payload
 
-    def ensure_ready(self) -> None:
+    def ensure_ready(
+        self,
+        *,
+        partition_repair: PartitionRepair | None = None,
+    ) -> None:
         self._recover_interrupted_canonical_migration()
         if self.needs_legacy_migration:
             self.migrate_legacy()
@@ -209,7 +230,9 @@ class PartitionedPriceStore:
                 else int(manifest.get("schema_version", -1))
             )
             if schema_version < PRICE_STORE_SCHEMA_VERSION:
-                self._migrate_canonical_timestamps()
+                self._migrate_canonical_timestamps(
+                    partition_repair=partition_repair,
+                )
 
     def _canonical_migration_paths(self) -> tuple[Path, Path]:
         staging = self.root.with_name(f"{self.root.name}.canonical-v2.tmp")
@@ -240,8 +263,12 @@ class PartitionedPriceStore:
         if backup.exists():
             backup.rename(self.root)
 
-    def _migrate_canonical_timestamps(self) -> None:
-        """One-time safe repair for legacy Binance closeTime partition timestamps."""
+    def _migrate_canonical_timestamps(
+        self,
+        *,
+        partition_repair: PartitionRepair | None = None,
+    ) -> None:
+        """Repair legacy timestamps, rebuilding ambiguous months from the source."""
 
         source_paths = self._partition_paths()
         if not source_paths:
@@ -250,6 +277,7 @@ class PartitionedPriceStore:
 
         needs_repair = False
         source_rows = 0
+        noncanonical_samples: dict[str, int] = {}
         for path in source_paths:
             timestamps = pd.read_parquet(path, columns=["timestamp_ms"])
             values = pd.to_numeric(timestamps["timestamp_ms"], errors="coerce")
@@ -262,15 +290,17 @@ class PartitionedPriceStore:
             supported_residues = (0, *LEGACY_CLOSE_TIME_RESIDUES_MS)
             unsupported = ~residues.isin(supported_residues)
             if unsupported.any():
-                sample = int(integer_values.loc[unsupported].iloc[0])
-                raise ValueError(
-                    "price partition contains a timestamp that is neither a minute "
-                    f"boundary nor a Binance closeTime: {path.name} timestamp_ms={sample}"
+                noncanonical_samples[path.stem] = int(
+                    integer_values.loc[unsupported].iloc[0]
                 )
             needs_repair = needs_repair or bool(
-                residues.isin(LEGACY_CLOSE_TIME_RESIDUES_MS).any()
+                unsupported.any()
+                or residues.isin(LEGACY_CLOSE_TIME_RESIDUES_MS).any()
             )
             source_rows += int(len(integer_values))
+
+        if noncanonical_samples and partition_repair is None:
+            raise NonCanonicalPriceTimestampsError(noncanonical_samples)
 
         if not needs_repair:
             self._rebuild_manifest()
@@ -292,15 +322,43 @@ class PartitionedPriceStore:
             )
 
         staging_store = PartitionedPriceStore(staging)
-        for path in source_paths:
-            staging_store._write_normalized_partitions(
-                normalize_price_frame(pd.read_parquet(path))
-            )
+        try:
+            for path in source_paths:
+                if path.stem in noncanonical_samples:
+                    assert partition_repair is not None
+                    repaired = normalize_price_frame(partition_repair(path.stem))
+                    if repaired.empty:
+                        raise ValueError(
+                            "authoritative price repair returned no rows for "
+                            f"{path.name}"
+                        )
+                    repaired_timestamps = repaired["timestamp_ms"].astype("int64")
+                    if (repaired_timestamps % MINUTE_MS != 0).any():
+                        raise ValueError(
+                            "authoritative price repair returned noncanonical "
+                            f"timestamps for {path.name}"
+                        )
+                    if any(
+                        _month_key(int(value) - MINUTE_MS) != path.stem
+                        for value in repaired_timestamps
+                    ):
+                        raise ValueError(
+                            "authoritative price repair returned candles whose source "
+                            f"close month is outside UTC month {path.stem}"
+                        )
+                    frame = repaired
+                else:
+                    frame = normalize_price_frame(pd.read_parquet(path))
+                staging_store._write_normalized_partitions(frame)
+        except BaseException:
+            if staging.exists():
+                shutil.rmtree(staging)
+            raise
         staging_store._rebuild_manifest(
             migrated_from_legacy=migrated_from_legacy,
         )
         staged_stats = staging_store.stats()
-        if staged_stats.total_rows != source_rows:
+        if not noncanonical_samples and staged_stats.total_rows != source_rows:
             shutil.rmtree(staging)
             raise ValueError(
                 "canonical timestamp migration would merge distinct observed rows; "
@@ -328,7 +386,14 @@ class PartitionedPriceStore:
                 backup.rename(self.root)
             raise
         print(
-            "[XASP] Repaired legacy Binance closeTime timestamps. "
+            "[XASP] Repaired legacy candle timestamps"
+            + (
+                "; rebuilt ambiguous UTC months from Binance: "
+                + ", ".join(sorted(noncanonical_samples))
+                if noncanonical_samples
+                else ""
+            )
+            + ". "
             f"Preserved backup: {backup}"
         )
 
@@ -463,6 +528,8 @@ __all__ = [
     "OPTIONAL_PRICE_COLUMNS",
     "PRICE_COLUMNS",
     "PRICE_STORE_SCHEMA_VERSION",
+    "NonCanonicalPriceTimestampsError",
+    "PartitionRepair",
     "PartitionedPriceStore",
     "PriceStoreStats",
     "normalize_price_frame",
