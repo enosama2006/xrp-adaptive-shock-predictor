@@ -124,7 +124,7 @@ jobs:
           from xasp.platform_runtime_v2 import RealDataPlatformV2
           from xasp.price_store import PartitionedPriceStore
 
-          assert RESEARCH_HORIZONS_MINUTES == (15, 30, 45, 60, 120, 180, 240, 480)
+          assert RESEARCH_HORIZONS_MINUTES == (60, 120, 180, 240, 300, 360, 420, 480)
           print("XASP platform imports, empirical discovery, and model lab contract passed")
           PY
 
