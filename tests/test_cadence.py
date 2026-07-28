@@ -17,8 +17,10 @@ def test_next_anchor_advances_one_minute_at_a_time() -> None:
 def test_horizons_roll_from_each_anchor() -> None:
     policy = CadencePolicy()
     anchor = 11 * 60_000
-    assert policy.horizon_end_ms(anchor, 15) == 26 * 60_000
     assert policy.horizon_end_ms(anchor, 60) == 71 * 60_000
+    assert policy.horizon_end_ms(anchor, 480) == 491 * 60_000
+    with pytest.raises(ValueError, match="not approved"):
+        policy.horizon_end_ms(anchor, 15)
 
 
 def test_invalid_policy_is_rejected() -> None:

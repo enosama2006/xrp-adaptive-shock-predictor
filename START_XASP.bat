@@ -9,7 +9,8 @@ set "HOST=127.0.0.1"
 set "VENV=.venv"
 set "PYTHON=%VENV%\Scripts\python.exe"
 set "PIP=%VENV%\Scripts\pip.exe"
-if not defined XASP_HISTORY_DAYS set "XASP_HISTORY_DAYS=365"
+if not defined XASP_HISTORY_DAYS set "XASP_HISTORY_DAYS=1825"
+if not defined XASP_EXPAND_HISTORY set "XASP_EXPAND_HISTORY=1"
 
 if not exist "%PYTHON%" (
     echo [XASP] Creating Python virtual environment...

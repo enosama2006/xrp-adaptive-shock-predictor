@@ -1,5 +1,5 @@
 const $ = (id) => document.getElementById(id);
-const HORIZONS = [15, 30, 45, 60, 120, 180, 240, 480];
+const HORIZONS = [60, 120, 180, 240, 300, 360, 420, 480];
 
 const STAGE_LABELS = {
   IDLE: "بانتظار التشغيل",
@@ -91,6 +91,11 @@ const REASON_LABELS = {
   horizon_interval_coverage_below_required_85pct: "تغطية الأفق الحية أقل من 85%",
   some_horizons_ready_others_monitoring_or_drift: "بعض الآفاق جاهزة والبقية تحت المراقبة",
   insufficient_matured_predictions_across_horizons: "العينات الحية لم تنضج بعد عبر الآفاق",
+  no_valid_hourly_first_touch_prediction: "لم يجتز أي نموذج ساعي بوابة التحقق بعد",
+  directional_probabilities_tied: "احتمالا الصعود والهبوط متساويان",
+  "2pct_touch_probability_too_low_within_available_hours": "احتمال بلوغ ±2% خلال الساعات المتاحة منخفض",
+  directional_edge_too_small: "الفارق بين احتمال الصعود والهبوط غير كافٍ",
+  directional_2pct_first_touch_edge: "الاتجاه المرجح وفق أول وصول إلى ±2%",
 };
 
 function reasonLabel(value) {
@@ -99,13 +104,13 @@ function reasonLabel(value) {
 
 function horizonLabel(value) {
   const labels = {
-    15: "15 دقيقة",
-    30: "30 دقيقة",
-    45: "45 دقيقة",
     60: "60 دقيقة (ساعة)",
     120: "120 دقيقة (ساعتان)",
     180: "180 دقيقة (3 ساعات)",
     240: "240 دقيقة (4 ساعات)",
+    300: "300 دقيقة (5 ساعات)",
+    360: "360 دقيقة (6 ساعات)",
+    420: "420 دقيقة (7 ساعات)",
     480: "480 دقيقة (8 ساعات)",
   };
   return labels[value] || `${value} دقيقة`;
@@ -130,6 +135,61 @@ function count(value) {
 function setConnection(mode, text) {
   $("connectionDot").className = `dot ${mode}`;
   $("connectionStatus").textContent = text;
+}
+
+function renderDirectionalForecast(forecast = {}) {
+  const decision = forecast.decision || "WAIT";
+  const bias = forecast.directional_bias;
+  const decisionElement = $("directionalDecision");
+  decisionElement.textContent = decision;
+  decisionElement.className = decision === "LONG"
+    ? "decision-long"
+    : decision === "SHORT"
+      ? "decision-short"
+      : "decision-wait";
+
+  $("decisionAnchorPrice").textContent = price(forecast.anchor_price);
+  $("decisionUpTarget").textContent = price(forecast.up_target_price);
+  $("decisionDownTarget").textContent = price(forecast.down_target_price);
+  $("decisionPredictedPrice").textContent = price(forecast.predicted_target_price);
+  $("decisionConfidence").textContent = pct(forecast.directional_probability);
+  $("decisionEventProbability").textContent = pct(forecast.event_probability);
+  $("decisionTouchWindow").textContent = forecast.expected_touch_horizon_minutes
+    ? horizonLabel(Number(forecast.expected_touch_horizon_minutes))
+    : "—";
+  $("decisionTimestamp").textContent = time(forecast.anchor_timestamp_ms);
+
+  if (decision === "LONG") {
+    $("directionalExplanation").textContent = `السيناريو المرجح هو وصول +2% أولًا نحو ${price(forecast.predicted_target_price)}.`;
+  } else if (decision === "SHORT") {
+    $("directionalExplanation").textContent = `السيناريو المرجح هو وصول −2% أولًا نحو ${price(forecast.predicted_target_price)}.`;
+  } else if (bias === "LONG" || bias === "SHORT") {
+    $("directionalExplanation").textContent = `الميل الحالي ${bias}، لكن الثقة أو احتمال حدوث حركة ±2% لا يكفيان لإصدار قرار. السبب: ${reasonLabel(forecast.decision_reason)}.`;
+  } else {
+    $("directionalExplanation").textContent = `WAIT — ${reasonLabel(forecast.decision_reason)}`;
+  }
+
+  const timeline = Array.isArray(forecast.timeline) ? forecast.timeline : [];
+  $("directionalTimelineBody").innerHTML = timeline.length
+    ? timeline.map((row) => `
+      <tr>
+        <td>${horizonLabel(Number(row.horizon_minutes))}</td>
+        <td class="positive">${pct(row.p_up_first_by_horizon)}</td>
+        <td class="negative">${pct(row.p_down_first_by_horizon)}</td>
+        <td>${pct(row.p_no_touch_by_horizon)}</td>
+        <td>${row.directional_bias || "—"}</td>
+        <td>${price(row.predicted_high_price_q50)}</td>
+        <td>${price(row.predicted_low_price_q50)}</td>
+      </tr>`).join("")
+    : '<tr><td colspan="7" class="empty">لا يوجد توقع ساعي صالح بعد</td></tr>';
+
+  const basis = forecast.training_basis || {};
+  if (basis.requested_history_days) {
+    $("directionalTrainingBasis").textContent =
+      `النافذة المطلوبة ${count(basis.requested_history_days)} يومًا من شموع Binance الدقيقة الحقيقية. ` +
+      "الخصائص: العوائد والزخم والتقلب وRSI وATR وBollinger والحجم وتدفق التداول. " +
+      "القيمة السوقية ودفتر الأوامر التاريخي غير المدون لا يدخلان التدريب.";
+  }
 }
 
 function shockWaitCard(horizon, reason = "لم يجتز الأفق بوابة التغطية بعد") {
@@ -300,6 +360,15 @@ function touchCard(row) {
   const values = [Number(row.p_up_02), Number(row.p_down_02), Number(row.p_no_event)];
   const labels = ["UP_02", "DOWN_02", "NO_EVENT"];
   const winner = labels[values.indexOf(Math.max(...values))];
+  const directionalMass = values[0] + values[1];
+  const directionalConfidence = directionalMass > 0
+    ? Math.max(values[0], values[1]) / directionalMass
+    : 0.5;
+  const targetPrice = winner === "UP_02"
+    ? Number(row.anchor_price) * 1.02
+    : winner === "DOWN_02"
+      ? Number(row.anchor_price) * 0.98
+      : NaN;
   return `
     <article class="horizon-model-card touch-card">
       <header><span>${horizonLabel(Number(row.horizon_minutes))}</span><strong>${winner}</strong></header>
@@ -307,7 +376,8 @@ function touchCard(row) {
         <div><dt>+2% أولًا</dt><dd class="positive">${pct(values[0])}</dd></div>
         <div><dt>−2% أولًا</dt><dd class="negative">${pct(values[1])}</dd></div>
         <div><dt>لا حدث</dt><dd>${pct(values[2])}</dd></div>
-        <div><dt>قرار المنصة</dt><dd>${row.decision || "WAIT"}</dd></div>
+        <div><dt>ثقة الاتجاه عند اللمس</dt><dd>${pct(directionalConfidence)}</dd></div>
+        <div><dt>سعر الهدف المرجح</dt><dd>${price(targetPrice)}</dd></div>
       </dl>
     </article>`;
 }
@@ -339,6 +409,7 @@ function renderLedger(rows, touchAvailable) {
 async function refresh() {
   try {
     const responses = await Promise.all([
+      fetch("/api/forecast/directional", { cache: "no-store" }),
       fetch("/api/status", { cache: "no-store" }),
       fetch("/api/models", { cache: "no-store" }),
       fetch("/api/models/adaptive-shock/latest", { cache: "no-store" }),
@@ -348,9 +419,10 @@ async function refresh() {
       fetch("/api/reports/production", { cache: "no-store" }),
     ]);
     if (!responses.every((response) => response.ok)) throw new Error("API unavailable");
-    const [status, catalog, shock, touch, ledger, touchReport, production] = await Promise.all(
+    const [forecast, status, catalog, shock, touch, ledger, touchReport, production] = await Promise.all(
       responses.map((response) => response.json()),
     );
+    renderDirectionalForecast(forecast);
     renderStatus(status);
     renderCatalog(catalog, touchReport, production);
     renderShock(shock);
@@ -361,6 +433,10 @@ async function refresh() {
     $("lastTick").textContent = "راجع نافذة التشغيل لمعرفة سبب WAIT";
     $("lifecycleTitle").textContent = "تعذر قراءة حالة التشغيل";
     $("lifecycleMessage").textContent = "لم تستجب واجهة API.";
+    renderDirectionalForecast({
+      decision: "WAIT",
+      decision_reason: "no_valid_hourly_first_touch_prediction",
+    });
     waitShockCards();
     waitTouchCards();
   }

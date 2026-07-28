@@ -136,7 +136,7 @@ def build_production_report(
         report["research_monitoring_readiness"] = "WAIT"
     report["trading_readiness"] = "WAIT"
     report["note"] = (
-        "Every 15/30/45/60/120/180/240/480-minute horizon is monitored "
+        "Every cumulative hourly horizon from 60 through 480 minutes is monitored "
         "independently. A long horizon may be research-ready while a short rare-event "
         "horizon remains WAIT. No metric guarantees profit."
     )

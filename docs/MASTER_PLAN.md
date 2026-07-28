@@ -6,8 +6,8 @@ Updated: 2026-07-23
 
 Build a restart-safe, real-data XRP research platform with two scientifically independent models:
 
-1. **Model A — XRP Adaptive Shock Predictor**: estimate likely future upside/downside excursion ranges and shock magnitude over 15/30/45/60 minutes.
-2. **Model B — ±2% First-Touch Predictor**: estimate whether +2%, -2%, or neither barrier is reached first over the same horizons.
+1. **Model A — XRP Adaptive Shock Predictor**: estimate likely future upside/downside excursion ranges for every cumulative hour from 1 through 8 hours.
+2. **Model B — ±2% First-Touch Predictor**: estimate whether +2%, -2%, or neither barrier is reached first by each hourly deadline.
 
 Both models share a governed point-in-time data platform, but each owns its targets, trainer, model artifacts, prediction store, production report, and readiness gate.
 
@@ -57,7 +57,7 @@ For every horizon:
 
 1. No random train/test split for time series.
 2. No future leakage in features, targets, scaling, calibration, imputation, or selection.
-3. Overlapping 15/30/45/60-minute label windows require purge and embargo.
+3. Overlapping cumulative hourly label windows require purge and embargo.
 4. Final model selection cannot inspect the untouched chronological test period.
 5. Model B first-touch labels use the observed path, not only the horizon close.
 6. A minute candle that touches both barriers is `AMBIGUOUS` unless finer data proves ordering.
@@ -76,15 +76,15 @@ For every horizon:
 
 ### Stage 1 — `BOOTSTRAP_HISTORY`
 
-- On a fresh installation, request at least 365 days of Binance `XRPUSDT` one-minute completed candles.
-- Page the API deterministically and persist checkpoints instead of holding the full year only in memory.
+- On a fresh installation, request 1,825 days of Binance `XRPUSDT` one-minute completed candles.
+- Page the API deterministically and persist checkpoints instead of holding five years only in memory.
 - Save OHLCV plus available historical trade-flow fields: quote volume, trade count, taker-buy base, and taker-buy quote.
 - Normalize candle timestamps to the exact time the completed candle became available.
 - Expose progress: requested range, covered range, rows stored, pages completed, estimated remaining work, and current failure/retry state.
 
 Acceptance:
 
-- at least 365 days or an explicitly documented maximum source range;
+- 1,825 days or an explicitly documented maximum source range;
 - >=99.5% expected minute coverage after justified exclusions;
 - no silent duplicates or backward timestamps;
 - atomic, restart-safe local storage;
@@ -98,6 +98,7 @@ Historical base families:
 
 - returns and log returns;
 - rolling volatility, jump intensity, momentum, acceleration, range position, drawdown, and breakout features;
+- RSI, ATR as a fraction of price, and Bollinger position/bandwidth;
 - volume and quote-volume `log1p` transforms;
 - taker-buy ratio, signed-volume proxy, trade intensity, and average trade size;
 - rolling z-score and robust median/IQR scores;

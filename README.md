@@ -2,12 +2,16 @@
 
 ## Governed target
 
-XASP 1.8.0 uses one versioned target definition across both models:
+XASP 1.9.0 presents one readable forecast built from two validated components:
 
-- the primary objective is an XRP upside move of at least `+2%`;
-- Model B compares first touch of `+2%`, first touch of `-2%`, or `NO_EVENT`;
-- Model A continues to estimate the full future excursion distribution while
-  explicitly evaluating the governed `+2%` upside target.
+- the primary question is whether XRP touches `+2%` or `-2%` first;
+- horizons are cumulative hourly deadlines from one through eight hours;
+- sub-hour 15/30/45-minute targets and interface outputs are removed;
+- the main response is `LONG`, `SHORT`, or `WAIT`, together with both barrier
+  prices, directional probability, event probability, and the most likely
+  hourly arrival window;
+- Model B supplies first-touch direction probabilities while Model A supplies
+  the expected high/low price range for explanation.
 
 On the first startup after this target change, XASP preserves raw observed
 Binance candles and invalidates old target-derived anchors, models, reports,
@@ -21,7 +25,8 @@ XASP is a research-first, continuously evaluated XRP forecasting platform built 
 
 **Technical form:** future-excursion / shock-magnitude regression.
 
-For each prediction timestamp and each horizon (15, 30, 45, and 60 minutes), Model A estimates:
+For each prediction timestamp and each cumulative hourly horizon from one
+through eight hours, Model A estimates:
 
 - the likely maximum upside excursion;
 - the likely maximum downside excursion;
@@ -60,7 +65,8 @@ One model may become research-ready while the other remains `WAIT`.
 
 ### First startup
 
-1. Backfill at least **365 days** of observed Binance `XRPUSDT` one-minute candles.
+1. Backfill **1,825 days (five years)** of observed Binance `XRPUSDT`
+   one-minute candles by default.
 2. Store completed candles locally and atomically.
 3. Build causal features using only information available at each anchor timestamp.
 4. Build the independent targets for Model A and Model B.
@@ -75,7 +81,7 @@ A fresh installation must not fabricate an immediate prediction while the histor
 - display the latest valid research predictions if they are still fresh;
 - backfill only missing candles since the last local watermark;
 - append each new completed minute candle;
-- mature delayed outcomes at 15/30/45/60 minutes;
+- mature delayed outcomes at each hourly deadline from one through eight hours;
 - create a new prediction every completed minute when the corresponding model is available;
 - train a challenger after a governed amount of new data, normally once per day;
 - replace a champion only after the challenger passes the predefined temporal gates.
@@ -86,6 +92,7 @@ Raw exchange prices are preserved at full precision for auditability. Models sho
 
 - percentage returns and log returns;
 - realized volatility, jump intensity, momentum, and acceleration;
+- RSI, ATR as a fraction of price, and Bollinger position/bandwidth;
 - rolling range position, drawdown, distance from highs/lows, and breakout strength;
 - rolling z-scores fitted from past values only;
 - robust normalization using median and IQR for heavy-tailed features;
@@ -137,7 +144,7 @@ The dashboard must visibly separate Model A and Model B. Each section shows only
 - status and explicit `WAIT` reason;
 - model version and training time;
 - data range and sample size;
-- latest outputs for 15/30/45/60 minutes;
+- one primary directional decision plus an hourly cumulative timeline;
 - uncertainty and quality gate;
 - production accuracy/coverage report;
 - prediction history and matured outcomes.

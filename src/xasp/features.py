@@ -22,6 +22,8 @@ class FeatureConfig:
     trade_count_column: str = "trade_count"
     taker_buy_base_column: str = "taker_buy_base"
     taker_buy_quote_column: str = "taker_buy_quote"
+    indicator_windows_minutes: tuple[int, ...] = (14, 60)
+    bollinger_window_minutes: int = 20
 
 
 def _require_columns(frame: pd.DataFrame, columns: set[str]) -> None:
@@ -89,6 +91,9 @@ def build_price_features(
 
     _require_columns(prices, {config.timestamp_column, config.price_column})
     optional_names = (
+        "open",
+        "high",
+        "low",
         config.volume_column,
         config.quote_volume_column,
         config.trade_count_column,
@@ -149,6 +154,71 @@ def build_price_features(
     frame["jump_score_15m"] = frame["log_return_1m"].abs().div(
         frame["volatility_15m"].replace(0, np.nan)
     )
+
+    delta = price.diff()
+    gains = delta.clip(lower=0.0)
+    losses = -delta.clip(upper=0.0)
+    for window in config.indicator_windows_minutes:
+        if window <= 1:
+            raise ValueError("indicator windows must be greater than one")
+        minimum = min(window, max(2, window // 2))
+        average_gain = gains.ewm(
+            alpha=1.0 / window,
+            adjust=False,
+            min_periods=minimum,
+        ).mean()
+        average_loss = losses.ewm(
+            alpha=1.0 / window,
+            adjust=False,
+            min_periods=minimum,
+        ).mean()
+        relative_strength = average_gain.div(average_loss.replace(0, np.nan))
+        rsi = 100.0 - (100.0 / (1.0 + relative_strength))
+        frame[f"rsi_{window}m"] = rsi.where(
+            average_loss.ne(0),
+            100.0,
+        ).where(average_gain.ne(0) | average_loss.ne(0), 50.0)
+
+    bollinger_window = config.bollinger_window_minutes
+    if bollinger_window <= 1:
+        raise ValueError("bollinger_window_minutes must be greater than one")
+    bollinger_minimum = min(bollinger_window, max(2, bollinger_window // 2))
+    bollinger_mean = price.rolling(
+        bollinger_window,
+        min_periods=bollinger_minimum,
+    ).mean()
+    bollinger_std = price.rolling(
+        bollinger_window,
+        min_periods=bollinger_minimum,
+    ).std(ddof=0)
+    lower_band = bollinger_mean - 2.0 * bollinger_std
+    upper_band = bollinger_mean + 2.0 * bollinger_std
+    band_width = (upper_band - lower_band).replace(0, np.nan)
+    frame[f"bollinger_position_{bollinger_window}m"] = (
+        (price - lower_band).div(band_width).fillna(0.5)
+    )
+    frame[f"bollinger_bandwidth_{bollinger_window}m"] = band_width.div(price)
+
+    high = _numeric_optional(frame, "high")
+    low = _numeric_optional(frame, "low")
+    if high is not None and low is not None:
+        previous_close = price.shift(1)
+        true_range = pd.concat(
+            [
+                high - low,
+                (high - previous_close).abs(),
+                (low - previous_close).abs(),
+            ],
+            axis=1,
+        ).max(axis=1)
+        for window in config.indicator_windows_minutes:
+            minimum = min(window, max(2, window // 2))
+            atr = true_range.ewm(
+                alpha=1.0 / window,
+                adjust=False,
+                min_periods=minimum,
+            ).mean()
+            frame[f"atr_percent_{window}m"] = atr.div(price)
 
     volume = _numeric_optional(frame, config.volume_column)
     quote_volume = _numeric_optional(frame, config.quote_volume_column)

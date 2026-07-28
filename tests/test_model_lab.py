@@ -60,6 +60,7 @@ def test_lab_runtime_report_covers_models_apis_and_interface_controls() -> None:
         "/api/health",
         "/api/status",
         "/api/models",
+        "/api/forecast/directional",
         "/api/lab/overview",
         "/api/lab/current-inputs",
         "/api/governance",
@@ -78,6 +79,27 @@ def test_lab_runtime_report_covers_models_apis_and_interface_controls() -> None:
     assert "function buildRuntimeReport(" in javascript
     assert "navigator.clipboard?.writeText" in javascript
     assert "URL.createObjectURL(blob)" in javascript
+
+
+def test_primary_interface_exposes_one_readable_hourly_decision() -> None:
+    html = Path("index.html").read_text(encoding="utf-8")
+    javascript = Path("app.js").read_text(encoding="utf-8")
+
+    for element_id in (
+        "directionalDecision",
+        "decisionAnchorPrice",
+        "decisionUpTarget",
+        "decisionDownTarget",
+        "decisionPredictedPrice",
+        "decisionConfidence",
+        "decisionEventProbability",
+        "decisionTouchWindow",
+        "directionalTimelineBody",
+    ):
+        assert f'id="{element_id}"' in html
+
+    assert 'fetch("/api/forecast/directional"' in javascript
+    assert "const HORIZONS = [60, 120, 180, 240, 300, 360, 420, 480];" in javascript
 
 
 def test_lab_is_fail_closed_without_governed_model_bundle(tmp_path: Path) -> None:

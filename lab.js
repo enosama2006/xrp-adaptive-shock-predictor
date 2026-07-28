@@ -1,10 +1,11 @@
 const $ = (id) => document.getElementById(id);
-const HORIZONS = [15, 30, 45, 60, 120, 180, 240, 480];
-const APP_VERSION = "1.8.0";
+const HORIZONS = [60, 120, 180, 240, 300, 360, 420, 480];
+const APP_VERSION = "1.9.0";
 const REPORT_ENDPOINTS = [
   { path: "/api/health", label: "صحة الخدمة", critical: true },
   { path: "/api/status", label: "حالة دورة التشغيل", critical: true },
   { path: "/api/models", label: "فهرس النماذج", critical: true },
+  { path: "/api/forecast/directional", label: "القرار الاتجاهي الساعي", critical: true },
   { path: "/api/lab/overview", label: "ملخص المختبر", critical: true },
   { path: "/api/lab/current-inputs", label: "مدخلات السوق الحالية", critical: true },
   { path: "/api/governance", label: "الحوكمة", critical: false },

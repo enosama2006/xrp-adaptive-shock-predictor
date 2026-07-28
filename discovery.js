@@ -1,5 +1,5 @@
 const byId = (id) => document.getElementById(id);
-const MODEL_HORIZONS = [15, 30, 45, 60, 120, 180, 240, 480];
+const MODEL_HORIZONS = [60, 120, 180, 240, 300, 360, 420, 480];
 let latestDiscovery = null;
 
 const CONTEXT_LABELS = {

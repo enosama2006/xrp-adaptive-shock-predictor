@@ -5,19 +5,15 @@
 - Raw trades and book updates are ingested at source frequency.
 - Online features refresh every 5 seconds when source health is valid.
 - One immutable official prediction snapshot is written every 60 seconds.
-- Every snapshot creates four rolling outcomes: 15, 30, 45, and 60 minutes.
+- Every snapshot creates eight cumulative hourly outcomes: 60 through 480 minutes.
 - Windows are anchored to each minute, not to the top of the hour or quarter-hour.
 - UI estimates may refresh between official snapshots, but they are observational and are not added to training or evaluation ledgers.
 - Training labels mature independently at each horizon end.
 
 ## Example
 
-An official snapshot at 10:07 creates outcomes ending at:
-
-- 10:22 for 15 minutes
-- 10:37 for 30 minutes
-- 10:52 for 45 minutes
-- 11:07 for 60 minutes
+An official snapshot at 10:07 creates outcomes ending at 11:07, 12:07,
+13:07, 14:07, 15:07, 16:07, 17:07, and 18:07.
 
 The next official snapshot at 10:08 creates a different set of rolling windows.
 

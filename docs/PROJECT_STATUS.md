@@ -19,7 +19,7 @@ The code can start, backfill Binance minute candles, build features and targets,
 Current implementation:
 
 - future high/low excursion targets from observed OHLC candles;
-- quantile regression by 15/30/45/60-minute horizon;
+- quantile regression by cumulative hourly horizon from 1 through 8 hours;
 - persisted model bundle, report, and prediction file;
 - empirical interval-coverage gate;
 - separate API and dashboard section.
@@ -36,7 +36,7 @@ Current limitation:
 Current implementation:
 
 - deterministic first-touch label states;
-- 15/30/45/60-minute anchors;
+- cumulative 60/120/180/240/300/360/420/480-minute anchors;
 - calibrated multinomial logistic baseline;
 - persisted model bundle, report, and immutable prediction ledger;
 - delayed outcome maturation and production reporting;
@@ -48,7 +48,7 @@ Current limitation:
 - candle highs/lows must be used so intraminute touches are not missed;
 - same-candle dual touches must remain `AMBIGUOUS`;
 - purge/embargo helpers exist but are not yet used by the actual trainer;
-- rare-event support for ±2% may be insufficient even with one year of minute data.
+- rare-event support for ±2% may be insufficient even with five years of minute data.
 
 ---
 
@@ -56,7 +56,7 @@ Current limitation:
 
 - Restart-safe incremental Binance `XRPUSDT` one-minute kline pipeline.
 - Local Parquet storage with deduplication and atomic writes.
-- One-year bootstrap start calculation in the Windows launcher.
+- Five-year bootstrap start calculation in the Windows launcher.
 - Causal price and volume feature generation.
 - Log returns, rolling volatility, z-scores, robust median/IQR scores, and feature diagnostics.
 - Independent target/model paths for future excursion and first touch.
@@ -82,7 +82,7 @@ Current limitation:
 
 ### P1 — operating lifecycle
 
-6. The first one-year backfill currently runs inside one worker cycle and does not expose detailed progress.
+6. The first five-year backfill must expose detailed checkpointed progress.
 7. The pipeline materializes the full requested history before the final write; checkpointed page/chunk persistence is required.
 8. The API does not yet expose separate lifecycle progress for collection, feature building, Model A training, and Model B training.
 9. Champion/challenger comparison, quarantine, and rollback are not complete.
@@ -122,7 +122,7 @@ Current limitation:
 
 ### Data ready
 
-- 365-day minimum minute history stored;
+- 1,825-day requested minute history stored;
 - coverage and gap report passes;
 - timestamps normalized and monotonic;
 - restart/resume proven;

@@ -1,8 +1,8 @@
 """Extended-horizon Model B runtime with independent per-horizon promotion.
 
-Each horizon is trained, gated, versioned, and served independently. A valid
-8-hour model can therefore operate while a rare 15-minute ±2% model remains
-WAIT. No missing horizon is filled with fabricated probabilities.
+Each cumulative hourly horizon is trained, gated, versioned, and served
+independently. A valid 8-hour model can therefore operate while another hourly
+horizon remains WAIT. No missing horizon is filled with fabricated probabilities.
 """
 
 from __future__ import annotations

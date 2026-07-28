@@ -16,8 +16,9 @@ MINUTE = 60_000
 
 
 def test_governed_horizon_set_extends_to_eight_hours() -> None:
-    assert RESEARCH_HORIZONS_MINUTES == (15, 30, 45, 60, 120, 180, 240, 480)
-    assert RESEARCH_HORIZON_SET_VERSION.endswith("120-180-240-480-v1")
+    assert RESEARCH_HORIZONS_MINUTES == (60, 120, 180, 240, 300, 360, 420, 480)
+    assert "15" not in RESEARCH_HORIZON_SET_VERSION
+    assert RESEARCH_HORIZON_SET_VERSION.endswith("360-420-480-v2")
 
 
 def test_anchor_horizon_matrix_requires_every_horizon_for_every_anchor() -> None:
@@ -108,5 +109,6 @@ def test_production_report_declares_all_independent_horizons() -> None:
 
 def test_browser_ui_contains_eight_hour_horizon() -> None:
     javascript = Path("app.js").read_text(encoding="utf-8")
-    assert "const HORIZONS = [15, 30, 45, 60, 120, 180, 240, 480];" in javascript
+    assert "const HORIZONS = [60, 120, 180, 240, 300, 360, 420, 480];" in javascript
+    assert "15 دقيقة" not in javascript
     assert "480 دقيقة (8 ساعات)" in javascript

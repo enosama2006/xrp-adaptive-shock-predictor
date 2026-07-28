@@ -16,6 +16,7 @@ import uvicorn
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 
+from .directional_forecast import build_directional_forecast
 from .file_lock import InterProcessFileLock
 from .first_touch_v4 import FIRST_TOUCH_GATE_VERSION
 from .governance_routes import build_governance_router
@@ -100,7 +101,7 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
 
     app = FastAPI(
         title="XASP Real Data Platform",
-        version="1.8.0",
+        version="1.9.0",
         lifespan=lifespan,
     )
     app.include_router(build_governance_router(platform))
@@ -242,7 +243,8 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
                 "technical_name": "future-excursion quantile regression",
                 "purpose": (
                     "Estimate upside and downside excursion ranges independently for "
-                    "15/30/45/60/120/180/240/480 minutes, centered on the governed "
+                    "each cumulative hourly horizon from 1 through 8 hours, centered "
+                    "on the governed "
                     f"+{TARGET_PERCENT}% upside objective."
                 ),
                 "target_definition_version": TARGET_DEFINITION_VERSION,
@@ -278,7 +280,7 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
                 "purpose": (
                     f"Estimate whether +{TARGET_PERCENT}%, -{TARGET_PERCENT}%, "
                     "or neither is reached first "
-                    "within each independent horizon through eight hours."
+                    "by each cumulative hourly deadline through eight hours."
                 ),
                 "available": bool(touch_available),
                 "available_horizons": touch_available,
@@ -434,6 +436,35 @@ def create_app(platform: RealDataPlatformV2, web_root: Path = Path(".")) -> Fast
     @app.get("/api/envelope/latest")
     def latest_adaptive_shock() -> list[dict[str, Any]]:
         return active_envelope_predictions()
+
+    @app.get("/api/forecast/directional")
+    def directional_forecast() -> dict[str, Any]:
+        ledger = active_first_touch_ledger()
+        first_touch_rows: list[dict[str, Any]] = []
+        if not ledger.empty:
+            latest_anchor = int(ledger["anchor_timestamp_ms"].max())
+            latest = ledger[ledger["anchor_timestamp_ms"] == latest_anchor]
+            first_touch_rows = _record_list(
+                latest.where(latest.notna(), None).to_dict(orient="records")
+            )
+
+        stats = platform.price_store.stats()
+        observed_price: float | None = None
+        observed_timestamp_ms = stats.max_timestamp_ms
+        if observed_timestamp_ms is not None:
+            latest_price = platform.price_store.load(
+                start_ms=observed_timestamp_ms,
+                end_ms=observed_timestamp_ms,
+            )
+            if not latest_price.empty:
+                observed_price = float(latest_price.iloc[-1]["price"])
+
+        return build_directional_forecast(
+            first_touch_rows=first_touch_rows,
+            envelope_rows=active_envelope_predictions(),
+            observed_price=observed_price,
+            observed_timestamp_ms=observed_timestamp_ms,
+        )
 
     @app.get("/api/ledger")
     def ledger(limit: int = 100) -> list[dict[str, Any]]:
